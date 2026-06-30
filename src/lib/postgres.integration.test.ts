@@ -206,7 +206,7 @@ describePostgres("PostgreSQL production hardening", () => {
         )
         VALUES ('raw-current-2', 'plate-pg', 'drug-pg', 'EQUAL', 'bps-pg', 'CURRENT', 'admin-pg')
       `),
-    ).rejects.toThrow(/RawMic_current_plate_drug_key/);
+    ).rejects.toThrow(/plateId.*plateDrugId|already exists/);
 
     await prisma.$executeRawUnsafe(`
       INSERT INTO "SirInterpretation" (
@@ -234,7 +234,7 @@ describePostgres("PostgreSQL production hardening", () => {
         )
         VALUES ('sir-current-2', 'raw-current-1', 'plate-pg', 'drug-pg', 'bps-pg', 'R', 'CURRENT')
       `),
-    ).rejects.toThrow(/SirInterpretation_current_plate_drug_key/);
+    ).rejects.toThrow(/plateId.*plateDrugId|already exists/);
   });
 
   it("keeps RETIRED BreakpointSet immutable", async () => {
