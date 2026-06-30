@@ -29,8 +29,14 @@ describePostgres("PostgreSQL production hardening", () => {
     await prisma.$disconnect();
   });
 
+async function executeStatements(statements: string[]) {
+  for (const statement of statements) {
+    await prisma.$executeRawUnsafe(statement);
+  }
+}
+
   async function seedApprovedBreakpointSet(status: "APPROVED" | "RETIRED" = "APPROVED") {
-    await prisma.$executeRawUnsafe(`
+    await excuteStatements([
       INSERT INTO "Organization" ("id", "name") VALUES ('org-pg', 'PG Org');
       INSERT INTO "User" ("id", "organizationId", "name", "email", "role")
       VALUES ('admin-pg', 'org-pg', 'Admin', 'admin-pg@example.test', 'ADMIN');
@@ -44,7 +50,7 @@ describePostgres("PostgreSQL production hardening", () => {
         ${status === "RETIRED" ? "now(), 'admin-pg', 'superseded'" : "NULL, NULL, NULL"},
         'hash-pg', 'sha256', 1, 'admin-pg', now()
       );
-    `);
+    ]);
   }
 
   it("rejects direct updates and deletes for APPROVED BreakpointSet and rules", async () => {

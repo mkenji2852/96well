@@ -149,6 +149,17 @@ async function renderLoaded(options?: Parameters<typeof installFetchMock>[0]) {
   return mocks;
 }
 
+async function confirmUnreviewedAndWaitForApproveEnabled() {
+  const confirmButton = screen.getByRole("button", { name: "未確認を予測通り確認" });
+  await waitFor(() => expect(confirmButton).toBeEnabled());
+
+  fireEvent.click(confirmButton);
+
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "承認" })).toBeEnabled(),
+  );
+}
+
 beforeEach(() => {
   vi.spyOn(window, "confirm").mockReturnValue(true);
 });
@@ -206,12 +217,15 @@ describe("ImageReviewWorkspace", () => {
   });
 
   it("does not show success when approve API fails", async () => {
-    await renderLoaded({ approveStatus: 500 });
-    fireEvent.click(screen.getByRole("button", { name: "未確認を予測通り確認" }));
-    fireEvent.click(screen.getByRole("button", { name: "承認" }));
-    expect(await screen.findByText("承認に失敗しました。")).toBeInTheDocument();
-    expect(screen.queryByText("画像レビューを承認しました。")).not.toBeInTheDocument();
-  });
+  await renderLoaded({ approveStatus: 500 });
+
+  await confirmUnreviewedAndWaitForApproveEnabled();
+
+  fireEvent.click(screen.getByRole("button", { name: "承認" }));
+
+  expect(await screen.findByText("承認に失敗しました。")).toBeInTheDocument();
+  expect(screen.queryByText("画像レビューを承認しました。")).not.toBeInTheDocument();
+});
 
   it("shows reload guidance and latest status on 409 conflict", async () => {
     await renderLoaded({ approveStatus: 409 });
