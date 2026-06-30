@@ -9,6 +9,7 @@ This directory contains operational documents for controlled production deployme
 - [Pre-production Checklist](./pre-production-checklist.md)
 - [Production Smoke Test](./production-smoke-test.md)
 - [Environment Variables](./environment-variables.md)
+- [Production Evidence Template](./production-evidence-template.md)
 - [Production Environment Template](../../.env.production.example)
 
 ## How to use these documents
@@ -18,8 +19,9 @@ This directory contains operational documents for controlled production deployme
 3. Follow the [Production Deployment Runbook](./production-deployment-runbook.md) during the approved deployment window.
 4. Confirm environment-variable requirements with [Environment Variables](./environment-variables.md) and the placeholder-only [Production Environment Template](../../.env.production.example).
 5. Run the [Production Smoke Test](./production-smoke-test.md) after deployment.
-6. Keep the [Rollback Runbook](./rollback-runbook.md) available for incident response.
-7. Store completed evidence in the approved release or compliance evidence system.
+6. Record manual verification results with the [Production Evidence Template](./production-evidence-template.md).
+7. Keep the [Rollback Runbook](./rollback-runbook.md) available for incident response.
+8. Store completed evidence in the approved release or compliance evidence system.
 
 These documents must not contain real credentials, secret values, or production-only URLs.
 
