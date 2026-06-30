@@ -21,17 +21,21 @@ describePostgres("PostgreSQL production hardening", () => {
   const prisma = prismaFor(safePostgresUrl);
 
   beforeEach(async () => {
-    await prisma.$executeRawUnsafe('DELETE FROM "RawMic"');
-    await prisma.$executeRawUnsafe('DELETE FROM "SirInterpretation"');
-    await prisma.$executeRawUnsafe('DELETE FROM "PlateDrug"');
-    await prisma.$executeRawUnsafe('DELETE FROM "PlateWell"');
-    await prisma.$executeRawUnsafe('DELETE FROM "BreakpointRule"');
-    await prisma.$executeRawUnsafe('DELETE FROM "BreakpointSet"');
-    await prisma.$executeRawUnsafe('DELETE FROM "Plate"');
-    await prisma.$executeRawUnsafe('DELETE FROM "Sample"');
-    await prisma.$executeRawUnsafe('DELETE FROM "User"');
-    await prisma.$executeRawUnsafe('DELETE FROM "Organization"');
-  });
+  await prisma.$executeRawUnsafe(`
+    TRUNCATE TABLE
+      "SirInterpretation",
+      "RawMic",
+      "PlateWell",
+      "PlateDrug",
+      "BreakpointRule",
+      "BreakpointSet",
+      "Plate",
+      "Sample",
+      "User",
+      "Organization"
+    RESTART IDENTITY CASCADE
+  `);
+});
 
   afterAll(async () => {
     await prisma.$disconnect();
