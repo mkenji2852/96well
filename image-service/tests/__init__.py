@@ -1,0 +1,2 @@
+"""Image service tests."""
+

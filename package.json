@@ -1,0 +1,53 @@
+{
+  "name": "mic-plate-recorder",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "lint": "prisma generate && tsc --noEmit",
+    "build": "prisma generate && next build",
+    "start": "next start",
+    "test": "vitest run --configLoader runner",
+    "test:watch": "vitest --configLoader runner",
+    "test:e2e": "playwright test",
+    "test:postgres": "vitest run --configLoader runner src/lib/postgres.integration.test.ts",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate deploy",
+    "db:init": "node scripts/init-sqlite.mjs",
+    "db:seed": "tsx prisma/seed.ts",
+    "export:sample": "tsx scripts/generate-sample-export.ts",
+    "prisma:postgres:generate": "prisma generate --schema prisma/postgresql/schema.prisma",
+    "prisma:postgres:validate": "prisma validate --schema prisma/postgresql/schema.prisma",
+    "prisma:postgres:migrate": "prisma migrate deploy --schema prisma/postgresql/schema.prisma",
+    "postgres:schema-diff": "tsx scripts/postgres-schema-diff.ts",
+    "postgres:schema-check": "tsx scripts/postgres-schema-check.ts",
+    "postgres:hardening": "tsx scripts/postgres-schema-check.ts",
+    "postgres:baseline-check": "tsx scripts/postgres-baseline-check.ts",
+    "postgres:baseline": "tsx scripts/postgres-baseline.ts",
+    "postgres:backup-restore-check": "bash scripts/postgres-backup-restore-check.sh"
+  },
+  "dependencies": {
+    "@prisma/client": "6.19.0",
+    "dexie": "4.2.1",
+    "exceljs": "4.4.0",
+    "jose": "^6.0.0",
+    "next": "15.5.9",
+    "react": "19.1.1",
+    "react-dom": "19.1.1",
+    "zod": "4.1.12"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.11.3",
+    "@playwright/test": "1.56.1",
+    "@testing-library/jest-dom": "6.9.1",
+    "@testing-library/react": "16.3.0",
+    "@types/node": "24.10.0",
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "jsdom": "27.0.1",
+    "prisma": "6.19.0",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3",
+    "vitest": "3.2.4"
+  }
+}

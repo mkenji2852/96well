@@ -1,0 +1,14 @@
+node_modules
+.next
+image-service/.venv/
+image-service/.pytest_cache/
+image-service/**/__pycache__/
+coverage
+playwright-report
+test-results
+.env
+prisma/*.db
+prisma/*.db-journal
+*.log
+*.tsbuildinfo
+work/

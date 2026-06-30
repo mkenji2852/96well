@@ -1,0 +1,471 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("POSTGRES_PRISMA_DATABASE_URL")
+}
+
+enum Role {
+  TECHNICIAN
+  REVIEWER
+  ADMIN
+  AUDITOR
+}
+
+enum PlateStatus {
+  DRAFT
+  REVIEW_REQUIRED
+  APPROVED
+  SAVED
+  REVIEWED
+}
+
+enum WellState {
+  UNREAD
+  GROWTH
+  INHIBITED
+  CONTAMINATED
+  SKIPPED
+}
+
+enum DataSource {
+  MANUAL
+  IMAGE_REVIEWED
+  IMAGE_ASSISTED
+}
+
+enum ImageAssessmentStatus {
+  PENDING
+  PROCESSING
+  REVIEW_REQUIRED
+  APPROVED
+  REJECTED
+  ANALYSIS_FAILED
+}
+
+enum ImageReviewDecision {
+  APPROVED
+  REJECTED
+}
+
+enum MicModifier {
+  EQUAL
+  LESS_THAN_OR_EQUAL
+  GREATER_THAN
+  NOT_DETERMINED
+}
+
+enum SirCategory {
+  S
+  I
+  R
+  NO_BREAKPOINT
+  NOT_DETERMINED
+}
+
+enum ResultRecordStatus {
+  CURRENT
+  SUPERSEDED
+}
+
+enum BreakpointSetStatus {
+  DRAFT
+  APPROVED
+  RETIRED
+}
+
+model User {
+  id              String       @id @default(cuid())
+  organizationId  String
+  externalSubject String?      @unique
+  name            String
+  email           String       @unique
+  role            Role
+  active          Boolean      @default(true)
+  createdAt       DateTime     @default(now())
+  organization    Organization @relation(fields: [organizationId], references: [id])
+  auditLogs       AuditLog[]
+  samplesCreated  Sample[]     @relation("SampleCreatedBy")
+  uploadedImageAssessments ImageAssessment[] @relation("ImageAssessmentUploadedBy")
+  imageReviews    ImageReview[] @relation("ImageReviewReviewer")
+  confirmedPlateWells PlateWell[] @relation("PlateWellConfirmedBy")
+  imageWellOverrides ImageWellOverride[] @relation("ImageWellOverrideReviewer")
+  rawMicsCreated  RawMic[] @relation("RawMicCreatedBy")
+  sirInterpretationsCalculated SirInterpretation[] @relation("SirInterpretationCalculatedBy")
+  breakpointSetsCreated BreakpointSet[] @relation("BreakpointSetCreatedBy")
+  breakpointSetsApproved BreakpointSet[] @relation("BreakpointSetApprovedBy")
+  breakpointSetsRetired BreakpointSet[] @relation("BreakpointSetRetiredBy")
+
+  @@index([organizationId])
+}
+
+model Organization {
+  id              String           @id @default(cuid())
+  name            String
+  active          Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  users           User[]
+  samples         Sample[]
+  plates          Plate[]
+  breakpointSets  BreakpointSet[]
+  breakpointRules BreakpointRule[]
+}
+
+model Sample {
+  id              String       @id @default(cuid())
+  organizationId  String
+  createdByUserId String?
+  sampleCode      String
+  organism        String?
+  collectedAt     DateTime?
+  notes           String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  plates          Plate[]
+  organization    Organization @relation(fields: [organizationId], references: [id])
+  createdBy       User?        @relation("SampleCreatedBy", fields: [createdByUserId], references: [id])
+
+  @@unique([organizationId, sampleCode])
+  @@index([organizationId, createdAt])
+}
+
+model Plate {
+  id               String            @id @default(cuid())
+  sampleId         String
+  organizationId   String
+  name             String
+  status           PlateStatus       @default(DRAFT)
+  layoutVersion    String            @default("96-well-v1")
+  wellRevision     Int               @default(0)
+  resultRevision   Int               @default(0)
+  lastCalculatedAt DateTime?
+  lastBreakpointSetId String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  sample           Sample            @relation(fields: [sampleId], references: [id], onDelete: Cascade)
+  organization     Organization      @relation(fields: [organizationId], references: [id])
+  drugs            PlateDrug[]
+  wells            PlateWell[]
+  imageAssessments ImageAssessment[]
+  imagePredictions ImagePrediction[]
+  rawMics          RawMic[]
+  sirInterpretations SirInterpretation[]
+  exports          ExportRecord[]
+
+  @@index([organizationId, createdAt])
+}
+
+model PlateDrug {
+  id             String   @id @default(cuid())
+  plateId        String
+  rowIndex       Int
+  drugName       String
+  unit           String   @default("µg/mL")
+  concentrations Json
+  plate          Plate    @relation(fields: [plateId], references: [id], onDelete: Cascade)
+  rawMics        RawMic[]
+  sirInterpretations SirInterpretation[]
+
+  @@unique([plateId, rowIndex])
+}
+
+model PlateWell {
+  id                String           @id @default(cuid())
+  plateId           String
+  rowIndex          Int
+  columnIndex       Int
+  state             WellState        @default(UNREAD)
+  source            DataSource       @default(MANUAL)
+  confidence        Float?
+  needsReview       Boolean          @default(false)
+  observedAt        DateTime         @default(now())
+  sourcePredictionId String?
+  confirmedByUserId String?
+  confirmedAt       DateTime?
+  plate             Plate            @relation(fields: [plateId], references: [id], onDelete: Cascade)
+  sourcePrediction  ImagePrediction? @relation("PlateWellSourcePrediction", fields: [sourcePredictionId], references: [id], onDelete: SetNull)
+  confirmedBy       User?            @relation("PlateWellConfirmedBy", fields: [confirmedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([plateId, rowIndex, columnIndex])
+  @@index([sourcePredictionId])
+  @@index([confirmedByUserId])
+}
+
+model RawMic {
+  id                       String              @id @default(cuid())
+  plateId                  String
+  plateDrugId              String
+  value                    Float?
+  modifier                 MicModifier
+  rawMicOperator           String?
+  endpointRule             String?
+  calculationMethod        String              @default("broth-microdilution-v2")
+  calculationEngineVersion String              @default("broth-microdilution-v2")
+  reviewRequired           Boolean             @default(false)
+  sourceWellRevision       Int                 @default(0)
+  breakpointSetId          String
+  status                   ResultRecordStatus  @default(CURRENT)
+  supersedesId             String?
+  supersededAt             DateTime?
+  rationaleJson            Json?
+  calculatedAt             DateTime            @default(now())
+  createdAt                DateTime            @default(now())
+  createdByUserId          String?
+  plate                    Plate               @relation(fields: [plateId], references: [id], onDelete: Cascade)
+  plateDrug                PlateDrug           @relation(fields: [plateDrugId], references: [id], onDelete: Cascade)
+  breakpointSet            BreakpointSet       @relation(fields: [breakpointSetId], references: [id])
+  supersedes               RawMic?             @relation("RawMicSupersession", fields: [supersedesId], references: [id])
+  supersededBy             RawMic[]            @relation("RawMicSupersession")
+  createdBy                User?               @relation("RawMicCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  interpretations          SirInterpretation[]
+
+  @@index([plateId, plateDrugId, status])
+  @@index([breakpointSetId])
+  @@index([supersedesId])
+  @@index([createdByUserId])
+}
+
+model BreakpointSet {
+  id              String              @id @default(cuid())
+  organizationId  String
+  standard        String
+  version         String
+  organism        String?
+  unit            String              @default("µg/mL")
+  method          String              @default("BROTH_MICRODILUTION")
+  status          BreakpointSetStatus @default(DRAFT)
+  approvedAt      DateTime?
+  approvedByUserId String?
+  retiredAt       DateTime?
+  retiredByUserId String?
+  retireReason    String?
+  approvalComment String?
+  sourceDocumentReference String?
+  sourceDocumentChecksum String?
+  effectiveFrom   DateTime?
+  effectiveTo     DateTime?
+  supersedesBreakpointSetId String?
+  contentHash     String?
+  contentHashAlgorithm String              @default("sha256")
+  contentHashVersion Int                   @default(1)
+  revision        Int                 @default(0)
+  createdByUserId String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  organization    Organization        @relation(fields: [organizationId], references: [id])
+  createdBy       User?               @relation("BreakpointSetCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  approvedBy      User?               @relation("BreakpointSetApprovedBy", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+  retiredBy       User?               @relation("BreakpointSetRetiredBy", fields: [retiredByUserId], references: [id], onDelete: SetNull)
+  supersedes      BreakpointSet?       @relation("BreakpointSetSupersession", fields: [supersedesBreakpointSetId], references: [id], onDelete: Restrict)
+  supersededBy    BreakpointSet[]      @relation("BreakpointSetSupersession")
+  rules           BreakpointRule[]
+  rawMics         RawMic[]
+  interpretations SirInterpretation[]
+
+  @@index([organizationId, status, effectiveFrom, effectiveTo])
+  @@index([organizationId, standard, version])
+  @@index([supersedesBreakpointSetId])
+  @@index([createdByUserId])
+  @@index([approvedByUserId])
+  @@index([retiredByUserId])
+}
+
+model BreakpointRule {
+  id              String              @id @default(cuid())
+  organizationId  String
+  breakpointSetId String
+  drugName        String
+  organism        String?
+  standard        String
+  version         String
+  susceptibleMax  Float
+  resistantMin    Float
+  intermediateMin Float?
+  intermediateMax Float?
+  unit            String              @default("µg/mL")
+  method          String              @default("BROTH_MICRODILUTION")
+  exceptionJson   Json?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  interpretations SirInterpretation[]
+  organization    Organization        @relation(fields: [organizationId], references: [id])
+  breakpointSet   BreakpointSet       @relation(fields: [breakpointSetId], references: [id], onDelete: Restrict)
+
+  @@unique([breakpointSetId, drugName, organism, unit, method])
+  @@index([organizationId])
+  @@index([breakpointSetId])
+}
+
+model SirInterpretation {
+  id                   String              @id @default(cuid())
+  rawMicId             String
+  plateId              String
+  plateDrugId          String
+  breakpointSetId      String
+  breakpointRuleId     String?
+  category             SirCategory
+  standard             String?
+  ruleVersion          String?
+  susceptibleMax       Float?
+  resistantMin         Float?
+  ruleEngineVersion    String              @default("sir-rule-engine-v2")
+  status               ResultRecordStatus  @default(CURRENT)
+  supersedesId         String?
+  supersededAt         DateTime?
+  rationaleJson        Json?
+  interpretedAt        DateTime            @default(now())
+  calculatedAt         DateTime            @default(now())
+  calculatedByUserId   String?
+  rawMic               RawMic              @relation(fields: [rawMicId], references: [id], onDelete: Cascade)
+  plate                Plate               @relation(fields: [plateId], references: [id], onDelete: Cascade)
+  plateDrug            PlateDrug           @relation(fields: [plateDrugId], references: [id], onDelete: Cascade)
+  breakpointSet        BreakpointSet       @relation(fields: [breakpointSetId], references: [id])
+  breakpointRule       BreakpointRule?     @relation(fields: [breakpointRuleId], references: [id])
+  supersedes           SirInterpretation?  @relation("SirInterpretationSupersession", fields: [supersedesId], references: [id])
+  supersededBy         SirInterpretation[] @relation("SirInterpretationSupersession")
+  calculatedBy         User?               @relation("SirInterpretationCalculatedBy", fields: [calculatedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([plateId, plateDrugId, breakpointSetId, status])
+  @@index([rawMicId, status])
+  @@index([breakpointSetId])
+  @@index([supersedesId])
+  @@index([calculatedByUserId])
+}
+
+model ExportRecord {
+  id             String   @id
+  plateId        String
+  organizationId String?
+  actorUserId    String?
+  profile        String   @default("ANONYMIZED")
+  reason         String?
+  fileName       String
+  mimeType       String
+  sizeBytes      Int
+  checksumSha256 String
+  breakpointStandard String?
+  breakpointVersion String?
+  breakpointContentHash String?
+  metadataJson   Json
+  actorLabel     String
+  expiresAt      DateTime?
+  downloadedAt   DateTime?
+  createdAt      DateTime @default(now())
+  plate          Plate    @relation(fields: [plateId], references: [id], onDelete: Cascade)
+
+  @@index([plateId, createdAt])
+  @@index([organizationId, createdAt])
+  @@index([actorUserId, createdAt])
+}
+
+model ImageAssessment {
+  id                   String                @id @default(cuid())
+  plateId              String
+  uploadedByUserId     String?
+  imageReference       String?
+  modelVersion         String?
+  confidence           Float?
+  predictedStates      Json?
+  status               ImageAssessmentStatus @default(PENDING)
+  manualReviewRequired Boolean               @default(true)
+  createdAt            DateTime              @default(now())
+  plate                Plate                 @relation(fields: [plateId], references: [id], onDelete: Cascade)
+  uploadedBy           User?                 @relation("ImageAssessmentUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+  predictions          ImagePrediction[]
+  reviews              ImageReview[]
+  overrides            ImageWellOverride[]
+
+  @@index([plateId, status, createdAt])
+  @@index([uploadedByUserId])
+}
+
+model ImagePrediction {
+  id               String              @id @default(cuid())
+  assessmentId     String
+  plateId          String
+  imageReference   String?
+  modelVersion     String
+  qcScore          Float?
+  qcFlags          Json?
+  detectedWells    Int
+  plateConfidence  Float?
+  predictions      Json
+  createdAt        DateTime            @default(now())
+  assessment       ImageAssessment     @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  plate            Plate               @relation(fields: [plateId], references: [id], onDelete: Cascade)
+  confirmedWells   PlateWell[]         @relation("PlateWellSourcePrediction")
+  overrides        ImageWellOverride[] @relation("ImageWellOverridePrediction")
+
+  @@index([assessmentId, createdAt])
+  @@index([plateId, createdAt])
+}
+
+model ImageReview {
+  id              String              @id @default(cuid())
+  assessmentId    String
+  reviewerUserId  String?
+  decision        ImageReviewDecision
+  reviewedAt      DateTime            @default(now())
+  rejectionReason String?
+  overrideReason  String?
+  confirmedWellsJson Json?
+  overridesJson   Json?
+  assessment      ImageAssessment     @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  reviewer        User?               @relation("ImageReviewReviewer", fields: [reviewerUserId], references: [id], onDelete: SetNull)
+
+  @@index([assessmentId, reviewedAt])
+  @@index([reviewerUserId])
+}
+
+model ImageWellOverride {
+  id                String          @id @default(cuid())
+  assessmentId      String
+  imagePredictionId String
+  reviewerUserId    String?
+  rowIndex          Int
+  columnIndex       Int
+  beforeState       WellState
+  afterState        WellState
+  reason            String
+  modelVersion      String
+  createdAt         DateTime        @default(now())
+  assessment        ImageAssessment @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  imagePrediction   ImagePrediction @relation("ImageWellOverridePrediction", fields: [imagePredictionId], references: [id], onDelete: Cascade)
+  reviewer          User?           @relation("ImageWellOverrideReviewer", fields: [reviewerUserId], references: [id], onDelete: SetNull)
+
+  @@index([assessmentId, rowIndex, columnIndex])
+  @@index([imagePredictionId])
+  @@index([reviewerUserId])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  actorLabel String
+  action     String
+  entityType String
+  entityId   String
+  beforeJson Json?
+  afterJson  Json?
+  createdAt  DateTime @default(now())
+  actor      User?    @relation(fields: [actorId], references: [id])
+
+  @@index([entityType, entityId, createdAt])
+}
+
+model IdempotencyRecord {
+  id             String   @id @default(cuid())
+  key            String
+  actorUserId    String
+  organizationId String
+  plateId        String
+  requestHash    String
+  statusCode     Int
+  responseJson   Json
+  createdAt      DateTime @default(now())
+
+  @@unique([organizationId, actorUserId, key])
+  @@index([plateId, createdAt])
+}

@@ -1,0 +1,11 @@
+pyproject.toml
+app/__init__.py
+app/analyzer.py
+app/main.py
+app/models.py
+mic_plate_image_service.egg-info/PKG-INFO
+mic_plate_image_service.egg-info/SOURCES.txt
+mic_plate_image_service.egg-info/dependency_links.txt
+mic_plate_image_service.egg-info/requires.txt
+mic_plate_image_service.egg-info/top_level.txt
+tests/test_analyzer.py
