@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  sqlite-unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm test
+      - run: pnpm build
+
+  postgres-integration:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ast_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d ast_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      POSTGRES_PRISMA_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ast_test?schema=public
+      POSTGRES_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ast_test?schema=public
+      POSTGRES_APP_TEST_DATABASE_URL: postgresql://ast_app:ast_app_password@localhost:5432/ast_test?schema=public
+      POSTGRES_RESTORE_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ast_restore?schema=public
+      DATABASE_URL: file:./dev.db
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - name: Prepare restore and runtime roles
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE ast_restore"
+          psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE ast_legacy"
+          psql -h localhost -U postgres -d ast_test -v ON_ERROR_STOP=1 -c "CREATE ROLE ast_app LOGIN PASSWORD 'ast_app_password'"
+          psql -h localhost -U postgres -d ast_test -v ON_ERROR_STOP=1 -c "CREATE ROLE ast_readonly LOGIN PASSWORD 'ast_readonly_password'"
+      - run: pnpm prisma:postgres:generate
+      - run: pnpm prisma:postgres:validate
+      - run: pnpm prisma:postgres:migrate
+      - run: pnpm postgres:schema-diff
+      - run: pnpm postgres:hardening
+      - name: Apply least-privilege grants
+        env:
+          PGPASSWORD: postgres
+        run: psql -h localhost -U postgres -d ast_test -v ON_ERROR_STOP=1 -v db_name=ast_test -v app_user=ast_app -v migration_user=postgres -v readonly_user=ast_readonly -f prisma/postgresql/hardening/roles.sql
+      - run: pnpm test:postgres
+      - run: pnpm postgres:backup-restore-check
+      - name: Existing DB baseline rehearsal
+        env:
+          PGPASSWORD: postgres
+          POSTGRES_PRISMA_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ast_legacy?schema=public
+          BACKUP_CONFIRMED: "yes"
+          BASELINE_APPROVED: "yes"
+        run: |
+          psql -h localhost -U postgres -d ast_legacy -v ON_ERROR_STOP=1 -f prisma/postgresql/migrations/0001_initial/migration.sql
+          psql -h localhost -U postgres -d ast_legacy -v ON_ERROR_STOP=1 -f prisma/postgresql/migrations/0002_production_hardening/migration.sql
+          psql -h localhost -U postgres -d ast_legacy -v ON_ERROR_STOP=1 -f prisma/postgresql/fixtures/legacy-data.sql
+          pnpm postgres:baseline-check
+          pnpm postgres:baseline
+          pnpm prisma:postgres:migrate
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:e2e
