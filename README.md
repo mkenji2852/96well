@@ -1,5 +1,29 @@
 # MIC Plate Recorder
 
+## Research/local release scope
+
+This application is currently released only for research-only, local, non-clinical use.
+
+- Do not use it for clinical diagnosis, patient care, treatment decisions, official laboratory reporting, regulated operation, or controlled production deployment.
+- Use synthetic, anonymized, or otherwise non-clinical data only.
+- Do not enter patient names, patient IDs, medical record numbers, accession numbers, direct specimen identifiers, or other patient-identifying information.
+- Review Excel exports before sharing. Prefer the `ANONYMIZED` export profile.
+- Image analysis is assistive only and requires manual review.
+- If the intended use changes to clinical, diagnostic, regulated, production, or patient-identifying data handling, complete the separate production evidence workflow first.
+
+Release decision:
+
+- Research/local/non-clinical use: CONDITIONAL GO, subject to the local smoke test and checklist.
+- Clinical/diagnostic/regulated/controlled production use: NO-GO.
+
+See:
+
+- [Research Local Release](./docs/release/2026-07-01-research-local-release.md)
+- [Research Local Release Notes](./docs/release/2026-07-01-research-local-release-notes.md)
+- [Research Local Runbook](./docs/deployment/research-local-runbook.md)
+- [Research Local Smoke Test](./docs/deployment/research-local-smoke-test.md)
+- [Research Local Checklist](./docs/deployment/research-local-checklist.md)
+
 ## PostgreSQL本番リリース基盤
 
 本番相当環境ではSQLite migrationを使用しません。PostgreSQL専用のPrisma schemaとmigrationを明示的に指定します。

@@ -1,0 +1,61 @@
+# Research Local Checklist
+
+Use this checklist to make the final local research-use decision.
+
+## Local environment
+
+- [ ] Running locally only.
+- [ ] No production deployment is being performed.
+- [ ] `.env` is local/development only.
+- [ ] SQLite local database is used.
+- [ ] Production PostgreSQL migration is not being run for this local release.
+- [ ] No real credentials or production URLs are recorded in local documents.
+
+## Data scope
+
+- [ ] Synthetic, anonymized, or non-clinical data only.
+- [ ] No patient names.
+- [ ] No patient IDs.
+- [ ] No medical record numbers.
+- [ ] No accession numbers or direct specimen identifiers.
+- [ ] No patient-identifying information in notes.
+- [ ] No patient-identifying information in images or image filenames.
+
+## Use restrictions
+
+- [ ] No clinical decision use.
+- [ ] No diagnostic use.
+- [ ] No treatment or prescribing decision use.
+- [ ] No official laboratory reporting.
+- [ ] No regulated or controlled production operation.
+
+## Local validation
+
+- [ ] `pnpm lint` passed.
+- [ ] `pnpm test` passed.
+- [ ] `pnpm build` passed.
+- [ ] Local application opens.
+- [ ] Research local smoke test completed.
+
+## Excel export
+
+- [ ] `ANONYMIZED` export profile was used by default.
+- [ ] Exported workbook was reviewed before sharing.
+- [ ] Exported workbook contains no patient identifiers.
+- [ ] Exported workbook contains no notes or identifiers that should be excluded from anonymized sharing.
+- [ ] Output is clearly treated as research/non-clinical output.
+
+## Final decision
+
+- [ ] GO for research/local/non-clinical use.
+- [ ] CONDITIONAL GO for research/local/non-clinical use, with follow-up items listed below.
+- [ ] NO-GO for research/local/non-clinical use.
+
+Follow-up items:
+
+```text
+<record local follow-up items here>
+```
+
+Clinical, diagnostic, regulated, and controlled production use remains **NO-GO** unless the separate production evidence workflow is completed.
+
