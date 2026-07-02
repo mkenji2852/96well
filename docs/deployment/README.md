@@ -11,6 +11,7 @@ This directory contains operational documents for controlled production deployme
 - [Research Local Runbook](./research-local-runbook.md)
 - [Research Local Smoke Test](./research-local-smoke-test.md)
 - [Research Local Checklist](./research-local-checklist.md)
+- [2026-07-01 Research Local Smoke Test Evidence](./research-local-evidence/2026-07-01-research-local-smoke-test.md)
 - [Environment Variables](./environment-variables.md)
 - [Production Evidence Template](./production-evidence-template.md)
 - [Production Environment Template](../../.env.production.example)

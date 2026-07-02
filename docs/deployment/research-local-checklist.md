@@ -2,6 +2,8 @@
 
 Use this checklist to make the final local research-use decision.
 
+Completed research-local evidence can be recorded in [2026-07-01 Research Local Smoke Test Evidence](./research-local-evidence/2026-07-01-research-local-smoke-test.md).
+
 ## Local environment
 
 - [ ] Running locally only.
@@ -58,4 +60,3 @@ Follow-up items:
 ```
 
 Clinical, diagnostic, regulated, and controlled production use remains **NO-GO** unless the separate production evidence workflow is completed.
-
