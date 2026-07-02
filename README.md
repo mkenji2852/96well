@@ -1,5 +1,33 @@
 # MIC Plate Recorder
 
+## Quick start for research/local use
+
+Use this path only for research-only, local, non-clinical evaluation with synthetic or anonymized data.
+
+```powershell
+pnpm install
+Copy-Item .env.example .env
+pnpm db:migrate
+pnpm db:seed
+pnpm dev
+```
+
+Then open:
+
+```text
+http://127.0.0.1:3000
+```
+
+If local Prisma migration is unavailable, initialize the SQLite database directly and then seed it:
+
+```powershell
+pnpm db:init
+pnpm db:seed
+pnpm dev
+```
+
+Do not use this quick-start path for clinical diagnosis, patient-identifying data, official laboratory reporting, or controlled production deployment.
+
 ## Research/local release scope
 
 This application is currently released only for research-only, local, non-clinical use.
