@@ -203,7 +203,8 @@ function addSummarySheet(workbook: ExcelJS.Workbook, { plate, metadata }: Export
   sheet.views = [{ state: "frozen", ySplit: 11, showGridLines: false }];
   addTitle(sheet, "MIC Plate Result");
   sheet.addRows([
-    ["Profile", metadata.profile, "Export sample ID", metadata.pseudonymousSampleId],
+    ["Profile", metadata.profile, "Sample code", safeExcelText(plate.sample.sampleCode)],
+    ["Export sample ID", metadata.pseudonymousSampleId, "", ""],
     ["Organism", safeExcelText(plate.sample.organism ?? "Not specified"), "Status", safeExcelText(plate.status)],
     ["Breakpoint standard", safeExcelText(metadata.breakpointStandard ?? "Saved result"), "Breakpoint version", safeExcelText(metadata.breakpointVersion ?? "Saved result")],
     ["Breakpoint content hash", metadata.profile === "ANONYMIZED" ? "Not included" : safeExcelText(metadata.breakpointContentHash?.slice(0, 16) ?? "")],
@@ -211,9 +212,6 @@ function addSummarySheet(workbook: ExcelJS.Workbook, { plate, metadata }: Export
     ["Well revision", metadata.snapshot.wellRevision, "Result revision", metadata.snapshot.resultRevision],
     ["Legend", "S = Susceptible | I = Intermediate/Increased exposure | R = Resistant | ND = Not determined"],
   ]);
-  if (metadata.profile !== "ANONYMIZED") {
-    sheet.addRow(["Sample code", safeExcelText(plate.sample.sampleCode)]);
-  }
   if (metadata.profile !== "ANONYMIZED" && metadata.includeNotes) {
     sheet.addRow(["Notes", safeExcelText(plate.sample.notes ?? "")]);
   }
@@ -221,7 +219,7 @@ function addSummarySheet(workbook: ExcelJS.Workbook, { plate, metadata }: Export
 
   const headers = metadata.profile === "ANONYMIZED"
     ? [
-      "Export Sample ID", "Organism", "Drug", "Raw MIC", "MIC Value", "Unit", "Interpretation",
+      "Sample Code", "Export Sample ID", "Organism", "Drug", "Raw MIC", "MIC Value", "Unit", "Interpretation",
       "Breakpoint Standard", "Breakpoint Version", "MIC Engine", "SIR Engine", "Review Required", "Source Well Revision",
     ]
     : [
@@ -238,7 +236,8 @@ function addSummarySheet(workbook: ExcelJS.Workbook, { plate, metadata }: Export
     const operator = (mic.rawMicOperator as RawMicOperator | null) ?? null;
     const category = categoryFor(interpretation);
     const common = [
-      metadata.profile === "ANONYMIZED" ? metadata.pseudonymousSampleId : safeExcelText(plate.sample.sampleCode),
+      safeExcelText(plate.sample.sampleCode),
+      ...(metadata.profile === "ANONYMIZED" ? [metadata.pseudonymousSampleId] : []),
       safeExcelText(plate.sample.organism ?? ""),
       safeExcelText(mic.plateDrug.drugName),
       formatMic(mic.value, operator ?? mic.modifier),
@@ -255,7 +254,7 @@ function addSummarySheet(workbook: ExcelJS.Workbook, { plate, metadata }: Export
     const row = sheet.addRow(metadata.profile === "ANONYMIZED"
       ? common
       : [...common, mic.id, interpretation?.id ?? "", mic.breakpointSetId]);
-    const interpretationCell = row.getCell(7);
+    const interpretationCell = row.getCell(metadata.profile === "ANONYMIZED" ? 8 : 7);
     const fills: Record<string, string> = { S: "FFD9EAD3", I: "FFFFF2CC", R: "FFF4CCCC", NO_BREAKPOINT: "FFE7E6E6", "N/A": "FFE7E6E6" };
     const fill = fills[String(interpretationCell.value)];
     if (fill) interpretationCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: fill } };
@@ -263,7 +262,7 @@ function addSummarySheet(workbook: ExcelJS.Workbook, { plate, metadata }: Export
   }
 
   sheet.columns = (metadata.profile === "ANONYMIZED"
-    ? [20, 22, 20, 16, 12, 12, 18, 18, 18, 24, 24, 16, 20]
+    ? [18, 20, 22, 20, 16, 12, 12, 18, 18, 18, 24, 24, 16, 20]
     : [18, 22, 20, 16, 12, 12, 18, 18, 18, 24, 24, 16, 20, 28, 28, 28]
   ).map((width) => ({ width }));
   sheet.autoFilter = { from: { row: headerRowNumber, column: 1 }, to: { row: headerRowNumber, column: headers.length } };
@@ -275,7 +274,8 @@ function addWellsSheet(workbook: ExcelJS.Workbook, { plate, metadata }: ExportDa
   const includeInternal = metadata.profile === "AUDIT_FULL";
   const headers = [
     ...(includeInternal ? ["Plate ID", "Sample ID"] : []),
-    metadata.profile === "ANONYMIZED" ? "Export Sample ID" : "Sample Code",
+    "Sample Code",
+    ...(metadata.profile === "ANONYMIZED" ? ["Export Sample ID"] : []),
     "Organism", "Drug", "Well", "Row", "Column", "Concentration", "Unit", "Raw State", "Source", "Confidence", "Review Required", "Observed At",
   ];
   sheet.addRow(headers);
@@ -285,7 +285,8 @@ function addWellsSheet(workbook: ExcelJS.Workbook, { plate, metadata }: ExportDa
       const well = plate.wells.find((item) => item.rowIndex === drug.rowIndex && item.columnIndex === columnIndex);
       sheet.addRow([
         ...(includeInternal ? [plate.id, plate.sampleId] : []),
-        metadata.profile === "ANONYMIZED" ? metadata.pseudonymousSampleId : safeExcelText(plate.sample.sampleCode),
+        safeExcelText(plate.sample.sampleCode),
+        ...(metadata.profile === "ANONYMIZED" ? [metadata.pseudonymousSampleId] : []),
         safeExcelText(plate.sample.organism ?? ""),
         safeExcelText(drug.drugName),
         wellName(drug.rowIndex, columnIndex),

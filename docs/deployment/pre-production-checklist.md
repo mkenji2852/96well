@@ -101,7 +101,7 @@ Use this checklist immediately before controlled production deployment. Do not p
 ## Excel export privacy controls
 
 - [ ] `ANONYMIZED` is the default profile.
-- [ ] `ANONYMIZED` excludes sample code, notes, actor identity, internal IDs, and raw audit JSON.
+- [ ] `ANONYMIZED` output behavior is reviewed against the target release. For `v0.2.0-research-local`, Sample-ID is included and must be synthetic/anonymized; controlled production remains NO-GO until this is re-reviewed for production privacy requirements.
 - [ ] `CLINICAL_INTERNAL` notes require permission and explicit acknowledgement.
 - [ ] `AUDIT_FULL` requires ADMIN/AUDITOR-equivalent permission.
 - [ ] `AUDIT_FULL` requires an export reason.

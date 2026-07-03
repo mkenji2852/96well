@@ -1,5 +1,9 @@
 # 2026-07-01 Research Local Release
 
+> Historical research-local record.
+>
+> This record predates `v0.2.0-research-local`. For the current Sample-ID -> drug layout -> 96-well workflow, Breakpoint-free save behavior, and Sample-ID-in-Excel policy, use the 2026-07-02 v0.2.0 release records.
+
 ## Release summary
 
 This record re-scopes the 96well application for research-only, local, non-clinical use.
@@ -152,4 +156,3 @@ In that case, return to the controlled production deployment process and complet
 - latest APPROVED BreakpointSet contentHash verification;
 - production smoke test;
 - sign-off.
-

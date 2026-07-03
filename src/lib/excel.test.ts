@@ -178,14 +178,15 @@ describe("buildPlateWorkbook privacy profiles", () => {
     expect(parseExportProfile("evil")).toBe("ANONYMIZED");
   });
 
-  it("creates an ANONYMIZED workbook without sample code, notes, actor, internal IDs, hidden sheets, or identifying properties", async () => {
+  it("creates an ANONYMIZED workbook with safe Sample-ID but without notes, actor, internal IDs, hidden sheets, or identifying properties", async () => {
     const workbook = await loadWorkbook("ANONYMIZED");
     const text = workbookText(workbook);
 
     expect(workbook.worksheets.map((sheet) => sheet.name)).toEqual(["Summary", "Wells", "Method"]);
     expect(workbook.worksheets.every((sheet) => sheet.state === "visible")).toBe(true);
     expect(text).toContain("AST-export-rand");
-    expect(text).not.toContain("=S-001");
+    expect(text).toContain("Sample Code");
+    expect(text).toContain("'=S-001");
     expect(text).not.toContain("-private note");
     expect(text).not.toContain("Actor Name");
     expect(text).not.toContain("actor-1");

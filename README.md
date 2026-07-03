@@ -35,7 +35,9 @@ This application is currently released only for research-only, local, non-clinic
 - Do not use it for clinical diagnosis, patient care, treatment decisions, official laboratory reporting, regulated operation, or controlled production deployment.
 - Use synthetic, anonymized, or otherwise non-clinical data only.
 - Do not enter patient names, patient IDs, medical record numbers, accession numbers, direct specimen identifiers, or other patient-identifying information.
+- Treat Sample-ID as a synthetic/anonymized research identifier only. Do not use patient or specimen identifiers as Sample-ID.
 - Review Excel exports before sharing. Prefer the `ANONYMIZED` export profile.
+- In `v0.2.0-research-local`, `ANONYMIZED` Excel output includes Sample-ID; this is acceptable only when Sample-ID is synthetic/anonymized and non-clinical.
 - Image analysis is assistive only and requires manual review.
 - If the intended use changes to clinical, diagnostic, regulated, production, or patient-identifying data handling, complete the separate production evidence workflow first.
 
@@ -48,6 +50,8 @@ See:
 
 - [Research Local Release](./docs/release/2026-07-01-research-local-release.md)
 - [Research Local Release Notes](./docs/release/2026-07-01-research-local-release-notes.md)
+- [Research Local v0.2.0 Release Candidate](./docs/release/2026-07-02-research-local-v0.2.0-release.md)
+- [Research Local v0.2.0 Release Notes](./docs/release/2026-07-02-research-local-v0.2.0-release-notes.md)
 - [Research Local Runbook](./docs/deployment/research-local-runbook.md)
 - [Research Local Smoke Test](./docs/deployment/research-local-smoke-test.md)
 - [Research Local Checklist](./docs/deployment/research-local-checklist.md)
@@ -389,7 +393,8 @@ cd image-service
 MIC/S/I/R結果は物理削除しません。再計算はDB transaction内で行い、同じplate+drugのCURRENT重複を防ぐためにpartial unique indexとPlateの`resultRevision`によるoptimistic concurrencyを使います。
 
 - 入力元ウェルは `MANUAL` または `IMAGE_REVIEWED` の確定値だけです
-- `breakpointSetId` は計算ごとに必須です。未指定の場合、最新breakpointを自動選択しません
+- 正式なMIC/S/I/R再計算では `breakpointSetId` が必要です。未指定の場合、最新breakpointを自動選択しません
+- `v0.2.0-research-local` の通常プレート保存フローでは `breakpointSetId` を送信せず、Breakpointなし保存を許可し、MIC/S/I/R再計算をスキップします
 - `RawMic` には `sourceWellRevision`、`calculationEngineVersion`、`breakpointSetId`、`createdByUserId` を保存します
 - `SirInterpretation` には `ruleEngineVersion`、`breakpointSetId`、`calculatedByUserId` を保存します
 - Excel SummaryはCURRENTのみを出力し、RawMic ID / SirInterpretation ID / breakpointSetId / engine versionを含みます
@@ -399,7 +404,7 @@ MIC/S/I/R結果は物理削除しません。再計算はDB transaction内で行
 
 Excel出力は目的別プロファイルで制御します。既定は `ANONYMIZED` です。
 
-- `ANONYMIZED`: `Summary` / `Wells` / `Method` のみ。sample code、notes、actor、内部DB ID、raw audit JSONは含めません。exportごとのランダムなpseudonymous sample IDを使います
+- `ANONYMIZED`: `Summary` / `Wells` / `Method` のみ。`v0.2.0-research-local` ではsynthetic/anonymized Sample-IDを含めます。notes、actor、内部DB ID、raw audit JSONは含めません。患者識別子や直接検体識別子をSample-IDへ入れないでください
 - `CLINICAL_INTERNAL`: 施設内利用向け。sample codeと技術追跡列を含められます。notesは `export:notes` 権限と明示確認がある場合だけ含めます
 - `AUDIT_FULL`: ADMIN/AUDITOR向け。理由必須。`ReviewHistory`、`InterpretationHistory`、`Audit`、`ExportMetadata` を含めます。監査JSONはそのまま1セルへ入れず、許可済みフィールドへ展開します
 

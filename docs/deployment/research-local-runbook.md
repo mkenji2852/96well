@@ -88,7 +88,7 @@ http://127.0.0.1:3000
 Expected result:
 
 - top page opens;
-- sample and plate entry can be used with research data;
+- Sample-ID, organism, plate selection, and drug-layout entry can be used with research data;
 - save works locally;
 - Excel export defaults to anonymized output;
 - image review, if used, remains manual-review based.
@@ -96,11 +96,30 @@ Expected result:
 ## Data handling
 
 - Use synthetic or anonymized sample codes.
+- In `v0.2.0-research-local`, Sample-ID is shown in the app workflow and included in Excel output. Use only synthetic/anonymized research-local Sample-IDs.
 - Keep notes free of patient identifiers.
 - Do not upload images containing labels or identifiers.
 - Review Excel output before sharing.
 - Prefer `ANONYMIZED` export for any external sharing.
 - If a file contains identifiers by mistake, do not share it; delete it according to local research data handling policy.
+
+## v0.2.0 research-local workflow
+
+1. Open the local app.
+2. Enter or select a synthetic/anonymized Sample-ID.
+3. Enter the organism manually or choose it from the common-organism list.
+4. Select or create a plate.
+5. Configure the drug layout before 96-well entry:
+   - choose which A-H rows are used;
+   - enter drug name;
+   - enter unit;
+   - enter 12 concentrations for columns 1-12.
+6. Enter 96-well results.
+7. Use the right-click lower-concentration growth action only as a research-local data-entry aid.
+8. Save locally. Breakpoint configuration is not required for normal research-local plate save.
+9. Export with `ANONYMIZED` when sharing externally and review the workbook before sharing.
+
+Breakpoint management remains in the application for historical compatibility, administrative review, and future controlled-production re-review. It is not required for the normal `v0.2.0-research-local` save path.
 
 ## Release decision for this runbook
 
@@ -121,4 +140,3 @@ Stop using this local release and return to the controlled production deployment
 - multiple organizations or facilities will use the same deployment;
 - production OIDC/PostgreSQL/DB role controls are required;
 - audit or regulatory evidence is required.
-

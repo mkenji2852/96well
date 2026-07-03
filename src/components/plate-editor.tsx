@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { FormEvent, PointerEvent as ReactPointerEvent } from "react";
+import type { FormEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
 import {
   deleteLocalDraft,
   flushSyncQueue,
@@ -20,6 +20,7 @@ import {
   PLATE_COLUMNS,
   PLATE_ROWS,
   UI_WELL_STATES,
+  applyGrowthToLowerConcentrations,
   applyStateToColumn,
   applyStateToRow,
   countEmptyWells,
@@ -34,7 +35,7 @@ import {
   type WellDetails,
   type WellDetailsMap,
 } from "@/lib/plate-ui";
-import { ROW_LABELS, type BreakpointSetView, type ExportProfile, type PlateView, type SavePlateRequest, type UserRole, type WellInput } from "@/types/domain";
+import { ROW_LABELS, type ExportProfile, type PlateView, type SavePlateRequest, type UserRole, type WellInput } from "@/types/domain";
 
 type Locale = "ja" | "en";
 
@@ -93,6 +94,7 @@ const copy = {
     exportStart: "Excel生成",
     exporting: "生成中",
     exportReady: "Excelをダウンロードできます。",
+    backToSamples: "Sample選択へ戻る",
   },
   en: {
     title: "96-well plate entry",
@@ -141,6 +143,7 @@ const copy = {
     exportStart: "Generate Excel",
     exporting: "Generating",
     exportReady: "Excel is ready to download.",
+    backToSamples: "Back to samples",
   },
 } as const;
 
@@ -158,6 +161,14 @@ interface ConflictState {
 interface SessionContext {
   actor: OfflineActor;
   role: UserRole;
+}
+
+interface WellContextMenu {
+  key: string;
+  rowIndex: number;
+  columnIndex: number;
+  x: number;
+  y: number;
 }
 
 function createInitialStates(plate: PlateView): PlateStateMap {
@@ -232,10 +243,12 @@ export function PlateEditor({
   plate,
   locale,
   onLocaleChange,
+  onBack,
 }: {
   plate: PlateView;
   locale: Locale;
   onLocaleChange: (locale: Locale) => void;
+  onBack: () => void;
 }) {
   const [wells, setWells] = useState<PlateStateMap>(() => createInitialStates(plate));
   const [details, setDetails] = useState<WellDetailsMap>(() => createInitialDetails(plate));
@@ -259,12 +272,7 @@ export function PlateEditor({
   const [exportBusy, setExportBusy] = useState(false);
   const [exportError, setExportError] = useState("");
   const [exportDownload, setExportDownload] = useState<{ href: string; fileName: string } | null>(null);
-  const [breakpointSets, setBreakpointSets] = useState<BreakpointSetView[]>([]);
-  const [breakpointSetId, setBreakpointSetId] = useState(
-    plate.selectedBreakpointSet?.status === "RETIRED" ? "" : plate.lastBreakpointSetId ?? "",
-  );
-  const [savedBreakpointSetId, setSavedBreakpointSetId] = useState(plate.lastBreakpointSetId ?? "");
-  const [breakpointChangeReason, setBreakpointChangeReason] = useState("");
+  const [wellContextMenu, setWellContextMenu] = useState<WellContextMenu | null>(null);
   const longPressTimer = useRef<number | null>(null);
   const longPressActivated = useRef(false);
   const longPressStart = useRef({ x: 0, y: 0 });
@@ -276,13 +284,8 @@ export function PlateEditor({
   }, [selectedKey]);
   const emptyCount = countEmptyWells(wells);
   const exportProfiles = useMemo(() => allowedExportProfiles(actorRole), [actorRole]);
-  const selectedBreakpoint = breakpointSets.find((set) => set.id === breakpointSetId) ?? null;
 
   const buildPayload = (states: PlateStateMap, revision = serverRevision): SavePlateRequest => ({
-    breakpointSetId,
-    breakpointChangeReason: savedBreakpointSetId && savedBreakpointSetId !== breakpointSetId
-      ? breakpointChangeReason.trim() || undefined
-      : undefined,
     expectedRevision: revision,
     wells: statesToWellInputs(states),
   });
@@ -297,8 +300,6 @@ export function PlateEditor({
       setBaseWells(localPayload.wells);
       setConflictState(null);
       setDirty(false);
-      setSavedBreakpointSetId(localPayload.breakpointSetId);
-      setBreakpointChangeReason("");
       setMessage(successMessage);
       return;
     }
@@ -343,28 +344,6 @@ export function PlateEditor({
   }, [t.authRequired]);
 
   useEffect(() => {
-    let cancelled = false;
-    const params = new URLSearchParams({ selectable: "true" });
-    if (plate.sample.organism) params.set("organism", plate.sample.organism);
-    fetch(`/api/breakpoint-sets?${params.toString()}`)
-      .then(async (response) => {
-        if (!response.ok) throw new Error("breakpoint list unavailable");
-        return response.json();
-      })
-      .then((data) => {
-        if (cancelled) return;
-        const available = (data.breakpointSets ?? []) as BreakpointSetView[];
-        setBreakpointSets(available);
-        if (
-          plate.selectedBreakpointSet &&
-          !available.some((set) => set.id === plate.selectedBreakpointSet?.id)
-        ) setBreakpointSetId("");
-      })
-      .catch(() => undefined);
-    return () => { cancelled = true; };
-  }, [plate.sample.organism, plate.selectedBreakpointSet]);
-
-  useEffect(() => {
     if (!exportProfiles.includes(exportProfile)) setExportProfile("ANONYMIZED");
   }, [exportProfile, exportProfiles]);
 
@@ -384,8 +363,6 @@ export function PlateEditor({
       if (cancelled) return;
       if (draft) {
         setWells(statesFromWellInputs(draft.payload.wells));
-        setBreakpointSetId(draft.payload.breakpointSetId);
-        setBreakpointChangeReason(draft.payload.breakpointChangeReason ?? "");
         setBaseWells(draft.baseWells);
         setServerRevision(draft.baseRevision);
         if (draft.details) setDetails({ ...createInitialDetails(plate), ...draft.details });
@@ -406,7 +383,7 @@ export function PlateEditor({
       saveLocalDraft(plate.id, actor, buildPayload(wells), serverRevision, baseWells, details).catch(() => undefined);
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [actor, baseWells, breakpointChangeReason, breakpointSetId, details, plate.id, serverRevision, wells]);
+  }, [actor, baseWells, details, plate.id, serverRevision, wells]);
 
   useEffect(() => {
     if (!actor) return;
@@ -454,6 +431,20 @@ export function PlateEditor({
     return () => { document.body.style.overflow = previous; };
   }, [editingKey]);
 
+  useEffect(() => {
+    if (!wellContextMenu) return;
+    const close = () => setWellContextMenu(null);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+    window.addEventListener("click", close);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [wellContextMenu]);
+
   const commit = (nextStates: PlateStateMap, nextDetails = details) => {
     setHistory((current) => [...current.slice(-29), { states: { ...wells }, details: cloneDetails(details) }]);
     setWells(nextStates);
@@ -500,6 +491,28 @@ export function PlateEditor({
     commit({ ...wells, [key]: cycleWellState(wells[key] ?? "EMPTY") });
   };
 
+  const openWellContextMenu = (
+    key: string,
+    rowIndex: number,
+    columnIndex: number,
+    event: ReactMouseEvent<HTMLButtonElement>,
+  ) => {
+    event.preventDefault();
+    setSelectedKey(key);
+    setWellContextMenu({
+      key,
+      rowIndex,
+      columnIndex,
+      x: Math.min(event.clientX, window.innerWidth - 260),
+      y: Math.min(event.clientY, window.innerHeight - 170),
+    });
+  };
+
+  const markLowerConcentrationsAsGrowth = (menu: WellContextMenu) => {
+    commit(applyGrowthToLowerConcentrations(wells, menu.rowIndex, menu.columnIndex));
+    setWellContextMenu(null);
+  };
+
   const undo = () => {
     const previous = history[history.length - 1];
     if (!previous) return;
@@ -520,16 +533,6 @@ export function PlateEditor({
 
   const save = async () => {
     const validationErrors = validatePlate(wells, details);
-    if (!breakpointSetId) {
-      validationErrors.push(locale === "ja"
-        ? "判定に使用するBreakpointSetを選択してください。"
-        : "Select the BreakpointSet used for interpretation.");
-    }
-    if (savedBreakpointSetId && savedBreakpointSetId !== breakpointSetId && !breakpointChangeReason.trim()) {
-      validationErrors.push(locale === "ja"
-        ? "BreakpointSetを変更する場合は理由を入力してください。"
-        : "A reason is required when changing the BreakpointSet.");
-    }
     setErrors(validationErrors);
     setMessage("");
     if (validationErrors.length > 0) return;
@@ -654,6 +657,7 @@ export function PlateEditor({
         <div className="brand-mark" aria-hidden="true"><span /><span /><span /><span /></div>
         <div className="brand-copy"><strong>MIC Plate</strong><small>RECORDER</small></div>
         <div className="header-empty-count" aria-live="polite"><b>{emptyCount}</b><span>{t.remaining}</span></div>
+        <button type="button" className="secondary-button header-back-button" onClick={onBack}>{t.backToSamples}</button>
         <button className="language-button" onClick={() => onLocaleChange(locale === "ja" ? "en" : "ja")}>{locale === "ja" ? "EN" : "日本語"}</button>
       </header>
 
@@ -664,51 +668,6 @@ export function PlateEditor({
           <p>{plate.sample.organism ?? t.organismUnset}</p>
         </div>
         <div className="connection-badge"><span />{t.autosave} / rev {serverRevision}</div>
-      </section>
-
-      <section className="breakpoint-selector-panel" aria-labelledby="breakpoint-selector-title">
-        <div>
-          <p className="eyebrow">Versioned rule</p>
-          <h2 id="breakpoint-selector-title">{locale === "ja" ? "判定基準版" : "Breakpoint version"}</h2>
-          <p>{locale === "ja"
-            ? "最新を自動選択せず、承認済みで有効期間内の版を明示選択します。"
-            : "No latest version is selected implicitly. Choose an approved effective version explicitly."}</p>
-        </div>
-        <div className="breakpoint-selector-controls">
-          <label>
-            {locale === "ja" ? "BreakpointSet" : "BreakpointSet"}
-            <select value={breakpointSetId} onChange={(event) => { setBreakpointSetId(event.target.value); setDirty(true); }}>
-              <option value="">{locale === "ja" ? "選択してください" : "Select a version"}</option>
-              {breakpointSets.map((set) => (
-                <option value={set.id} key={set.id}>
-                  {set.standard} {set.version} / {set.organism ?? (locale === "ja" ? "全菌種" : "Any organism")}
-                </option>
-              ))}
-            </select>
-          </label>
-          {selectedBreakpoint && (
-            <p className="breakpoint-selection-summary">
-              <strong>{selectedBreakpoint.standard} {selectedBreakpoint.version}</strong>
-              <span>{selectedBreakpoint.organism ?? (locale === "ja" ? "全菌種" : "Any organism")}</span>
-              <span>{locale === "ja" ? "承認" : "Approved"}: {selectedBreakpoint.approvedAt ? new Date(selectedBreakpoint.approvedAt).toLocaleDateString(locale === "ja" ? "ja-JP" : "en-US") : "—"}</span>
-              <span>{selectedBreakpoint.effectiveFrom?.slice(0, 10) ?? "—"} 〜 {selectedBreakpoint.effectiveTo?.slice(0, 10) ?? "—"}</span>
-            </p>
-          )}
-          {plate.selectedBreakpointSet?.status === "RETIRED" && (
-            <p className="breakpoint-retired-note" role="note">
-              {locale === "ja"
-                ? `過去結果は失効済みの ${plate.selectedBreakpointSet.standard} ${plate.selectedBreakpointSet.version} を参照しています。再計算には有効な版を選択してください。`
-                : `Historical results reference retired ${plate.selectedBreakpointSet.standard} ${plate.selectedBreakpointSet.version}. Select an active version to recalculate.`}
-            </p>
-          )}
-          {savedBreakpointSetId && savedBreakpointSetId !== breakpointSetId && (
-            <label>
-              {locale === "ja" ? "版変更理由（必須）" : "Reason for version change (required)"}
-              <textarea value={breakpointChangeReason} onChange={(event) => setBreakpointChangeReason(event.target.value)} rows={2} required />
-            </label>
-          )}
-          {actorRole === "ADMIN" && <a className="text-link" href="/breakpoints">{locale === "ja" ? "BreakpointSet管理を開く" : "Open BreakpointSet management"}</a>}
-        </div>
       </section>
 
       <section className="bulk-panel" aria-labelledby="bulk-title">
@@ -766,6 +725,8 @@ export function PlateEditor({
                     const state = wells[key] ?? "EMPTY";
                     const meta = stateMeta[state];
                     const wellName = `${label}${columnIndex + 1}`;
+                    const detail = details[key];
+                    const doseLabel = [detail?.concentration, detail?.unit].filter(Boolean).join(" ");
                     return (
                       <td key={columnIndex}>
                         <button
@@ -779,8 +740,13 @@ export function PlateEditor({
                           onPointerUp={stopLongPress}
                           onPointerCancel={stopLongPress}
                           onPointerLeave={stopLongPress}
-                          onContextMenu={(event) => { event.preventDefault(); openDetails(key); }}
-                        ><b>{meta.symbol}</b><small>{locale === "ja" ? meta.shortJa : meta.shortEn}</small></button>
+                          onContextMenu={(event) => openWellContextMenu(key, rowIndex, columnIndex, event)}
+                        >
+                          <b>{meta.symbol}</b>
+                          <small>{locale === "ja" ? meta.shortJa : meta.shortEn}</small>
+                          {detail?.drugName && <em className="well-drug-label">{detail.drugName}</em>}
+                          {doseLabel && <em className="well-dose-label">{doseLabel}</em>}
+                        </button>
                       </td>
                     );
                   })}
@@ -884,6 +850,24 @@ export function PlateEditor({
         <button type="button" className="bar-action" onClick={retrySync} disabled={saving || !actor}><span aria-hidden="true">↻</span>{saving ? t.syncing : t.sync}</button>
         <button type="button" className="bar-action bar-save" onClick={save} disabled={saving || !actor}><span aria-hidden="true">✓</span>{saving ? t.saving : t.save}</button>
       </div>
+
+      {wellContextMenu && (
+        <div
+          className="well-context-menu"
+          role="menu"
+          aria-label={`${coordinate(wellContextMenu.rowIndex, wellContextMenu.columnIndex)} well menu`}
+          style={{ left: wellContextMenu.x, top: wellContextMenu.y }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <strong>{coordinate(wellContextMenu.rowIndex, wellContextMenu.columnIndex)}</strong>
+          <button type="button" role="menuitem" onClick={() => markLowerConcentrationsAsGrowth(wellContextMenu)}>
+            {locale === "ja" ? "このウェルより低濃度を発育あり" : "Mark lower concentrations as growth"}
+          </button>
+          <button type="button" role="menuitem" onClick={() => { openDetails(wellContextMenu.key); setWellContextMenu(null); }}>
+            {t.details}
+          </button>
+        </div>
+      )}
 
       {editingKey && (
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditingKey(null); }}>

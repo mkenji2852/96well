@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
+import { COMMON_ORGANISMS } from "@/lib/organisms";
 import type { BreakpointRuleView, BreakpointSetView, UserRole } from "@/types/domain";
 
 type Detail = BreakpointSetView & {
@@ -140,6 +141,7 @@ export function BreakpointManager() {
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const isAdmin = role === "ADMIN";
   const diff = useMemo(() => detail ? diffRules(detail) : [], [detail]);
+  const breakpointOrganismDatalistId = "breakpoint-common-organisms";
 
   const loadList = async () => {
     const params = statusFilter ? `?status=${statusFilter}` : "";
@@ -313,13 +315,16 @@ export function BreakpointManager() {
         </aside>
 
         <div className="breakpoint-main-panel">
+          <datalist id={breakpointOrganismDatalistId}>
+            {COMMON_ORGANISMS.map((name) => <option value={name} key={name} />)}
+          </datalist>
           {isAdmin && (
             <details className="breakpoint-create-panel">
               <summary>新しいDRAFTを作成</summary>
               <form className="breakpoint-form" onSubmit={createSet}>
                 <label>Standard<select name="standard" defaultValue="CLSI"><option>CLSI</option><option>EUCAST</option><option>JANIS_COMPAT</option></select></label>
                 <label>Version<input name="version" required /></label>
-                <label>Organism<input name="organism" /></label>
+                <label>Organism<input name="organism" list={breakpointOrganismDatalistId} placeholder="Escherichia coli" /></label>
                 <label>Unit<input name="unit" defaultValue="µg/mL" required /></label>
                 <label>Method<input name="method" defaultValue="BROTH_MICRODILUTION" required /></label>
                 <label>Effective from<input name="effectiveFrom" type="date" /></label>
@@ -352,7 +357,7 @@ export function BreakpointManager() {
                 <form className="breakpoint-form breakpoint-edit-form" onSubmit={updateSet}>
                   <label>Standard<select name="standard" defaultValue={detail.standard} key={`standard-${detail.id}-${detail.revision}`}><option>CLSI</option><option>EUCAST</option><option>JANIS_COMPAT</option></select></label>
                   <label>Version<input name="version" defaultValue={detail.version} key={`version-${detail.id}-${detail.revision}`} required /></label>
-                  <label>Organism<input name="organism" defaultValue={detail.organism ?? ""} key={`organism-${detail.id}-${detail.revision}`} /></label>
+                  <label>Organism<input name="organism" list={breakpointOrganismDatalistId} defaultValue={detail.organism ?? ""} key={`organism-${detail.id}-${detail.revision}`} placeholder="Escherichia coli" /></label>
                   <label>Unit<input name="unit" defaultValue={detail.unit} key={`unit-${detail.id}-${detail.revision}`} required /></label>
                   <label>Method<input name="method" defaultValue={detail.method} key={`method-${detail.id}-${detail.revision}`} required /></label>
                   <label>Effective from<input name="effectiveFrom" type="date" defaultValue={dateInput(detail.effectiveFrom)} key={`from-${detail.id}-${detail.revision}`} /></label>

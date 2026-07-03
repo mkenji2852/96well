@@ -6,6 +6,7 @@ export const createSampleSchema = z.object({
   notes: z.string().trim().max(1000).optional(),
   drugs: z.array(
     z.object({
+      rowIndex: z.number().int().min(0).max(7).optional(),
       drugName: z.string().trim().min(1).max(120),
       unit: z.string().trim().min(1).max(30),
       concentrations: z.array(z.number().positive()).length(12),
@@ -114,7 +115,7 @@ export const savePlateSchema = z.object({
   }).strict()).max(96).refine(hasUniqueWellCoordinates, {
     message: "well coordinates must be unique",
   }),
-  breakpointSetId: z.string().trim().min(1).max(200),
+  breakpointSetId: z.string().trim().max(200).optional(),
   breakpointChangeReason: z.string().trim().min(1).max(1000).optional(),
   expectedRevision: z.number().int().min(0).optional(),
   idempotencyKey: z.string().trim().min(8).max(200).optional(),

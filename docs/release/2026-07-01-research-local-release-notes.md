@@ -1,5 +1,9 @@
 # 2026-07-01 Research Local Release Notes
 
+> Historical release notes.
+>
+> These notes predate `v0.2.0-research-local`. For the current Sample-ID -> drug layout -> 96-well workflow, Breakpoint-free save behavior, and Sample-ID-in-Excel policy, use the 2026-07-02 v0.2.0 release notes.
+
 ## Release name
 
 96well Research Local Release Candidate, 2026-07-01.
@@ -78,4 +82,3 @@ PostgreSQL production integration tests are not required for this research-local
 **NO-GO for clinical/diagnostic/regulated/controlled production use.**
 
 If the intended use changes to clinical, diagnostic, regulated, production, or patient-identifying data handling, this release decision is void and the controlled production evidence workflow must be completed.
-

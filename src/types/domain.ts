@@ -59,6 +59,7 @@ export interface BreakpointSetView {
 }
 
 export interface DrugConfigInput {
+  rowIndex?: number;
   drugName: string;
   unit: string;
   concentrations: number[];
@@ -81,7 +82,7 @@ export interface WellInput {
 
 export interface SavePlateRequest {
   wells: WellInput[];
-  breakpointSetId: string;
+  breakpointSetId?: string;
   breakpointChangeReason?: string;
   expectedRevision?: number;
   idempotencyKey?: string;

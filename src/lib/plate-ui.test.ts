@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyStateToRow, createEmptyPlate, cycleWellState, wellKey } from "./plate-ui";
+import { applyGrowthToLowerConcentrations, applyStateToRow, createEmptyPlate, cycleWellState, wellKey } from "./plate-ui";
 
 describe("cycleWellState", () => {
   it("cycles empty → growth → no_growth → review_needed → empty", () => {
@@ -20,5 +20,21 @@ describe("applyStateToRow", () => {
       expect(next[wellKey(2, columnIndex)]).toBe("EMPTY");
     }
     expect(initial[wellKey(3, 0)]).toBe("EMPTY");
+  });
+});
+
+describe("applyGrowthToLowerConcentrations", () => {
+  it("marks only lower-concentration wells in the same row as growth", () => {
+    const initial = createEmptyPlate();
+    const next = applyGrowthToLowerConcentrations(initial, 2, 4);
+
+    for (let columnIndex = 0; columnIndex <= 4; columnIndex += 1) {
+      expect(next[wellKey(2, columnIndex)]).toBe("EMPTY");
+    }
+    for (let columnIndex = 5; columnIndex < 12; columnIndex += 1) {
+      expect(next[wellKey(2, columnIndex)]).toBe("GROWTH");
+    }
+    expect(next[wellKey(1, 5)]).toBe("EMPTY");
+    expect(initial[wellKey(2, 5)]).toBe("EMPTY");
   });
 });

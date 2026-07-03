@@ -20,11 +20,20 @@ test("mobile plate entry supports state, bulk apply, details, validation, and sa
     results: [],
   };
 
-  await page.route("**/api/samples", (route) => route.fulfill({
-    status: 201,
-    contentType: "application/json",
-    body: JSON.stringify({ sample: plate.sample, plate: { id: plate.id } }),
-  }));
+  await page.route("**/api/samples", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ samples: [] }) });
+      return;
+    }
+    const body = route.request().postDataJSON();
+    expect(body.drugs[0].rowIndex).toBe(0);
+    expect(body.drugs[0].drugName).toBe("Drug X");
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({ sample: plate.sample, plate: { id: plate.id } }),
+    });
+  });
   await page.route("**/api/me", (route) => route.fulfill({
     status: 200,
     contentType: "application/json",
@@ -48,9 +57,10 @@ test("mobile plate entry supports state, bulk apply, details, validation, and sa
   });
 
   await page.goto("/");
-  await page.getByLabel("サンプルID").fill("S-001");
-  await page.getByLabel("菌種（任意）").fill("E. coli");
-  await page.getByLabel("薬剤", { exact: true }).fill("Drug X");
+  await page.getByLabel("Sample-ID").fill("S-001");
+  await page.getByPlaceholder("Escherichia coli").fill("E. coli");
+  await page.getByRole("button", { name: "薬剤配置へ" }).click();
+  await page.getByLabel("薬剤名").first().fill("Drug X");
   await page.getByRole("button", { name: "プレート入力へ" }).click();
 
   await expect(page.locator(".ui-well")).toHaveCount(96);

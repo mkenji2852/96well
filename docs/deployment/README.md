@@ -12,6 +12,7 @@ This directory contains operational documents for controlled production deployme
 - [Research Local Smoke Test](./research-local-smoke-test.md)
 - [Research Local Checklist](./research-local-checklist.md)
 - [2026-07-01 Research Local Smoke Test Evidence](./research-local-evidence/2026-07-01-research-local-smoke-test.md)
+- [2026-07-02 Research Local v0.2.0 Smoke Test Evidence](./research-local-evidence/2026-07-02-research-local-smoke-test.md)
 - [Environment Variables](./environment-variables.md)
 - [Production Evidence Template](./production-evidence-template.md)
 - [Production Environment Template](../../.env.production.example)
@@ -29,9 +30,10 @@ This directory contains operational documents for controlled production deployme
 
 These documents must not contain real credentials, secret values, or production-only URLs.
 
-For research-only local non-clinical use, follow the [Research Local Runbook](./research-local-runbook.md), [Research Local Smoke Test](./research-local-smoke-test.md), and [Research Local Checklist](./research-local-checklist.md). This does not replace the controlled production deployment process for clinical, diagnostic, regulated, or patient-identifying data use.
+For research-only local non-clinical use, follow the [Research Local Runbook](./research-local-runbook.md), [Research Local Smoke Test](./research-local-smoke-test.md), and [Research Local Checklist](./research-local-checklist.md). For `v0.2.0-research-local`, record results in [2026-07-02 Research Local v0.2.0 Smoke Test Evidence](./research-local-evidence/2026-07-02-research-local-smoke-test.md). This does not replace the controlled production deployment process for clinical, diagnostic, regulated, or patient-identifying data use.
 
 ## Related release readiness records
 
 - [2026-06-30 Release Readiness](../release/2026-06-30-release-readiness.md)
 - [2026-07-01 Research Local Release](../release/2026-07-01-research-local-release.md)
+- [2026-07-02 Research Local v0.2.0 Release Candidate](../release/2026-07-02-research-local-v0.2.0-release.md)

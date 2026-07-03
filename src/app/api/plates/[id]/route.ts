@@ -341,11 +341,13 @@ export async function PUT(request: Request, { params }: RouteContext) {
         });
       }
 
-      const results = await recalculatePlateResults(tx, id, currentActor, {
-        breakpointSetId: parsed.data.breakpointSetId,
-        breakpointChangeReason: parsed.data.breakpointChangeReason,
-      });
-      if (!results) return { kind: "not_found" as const };
+      const results = parsed.data.breakpointSetId?.trim()
+        ? await recalculatePlateResults(tx, id, currentActor, {
+          breakpointSetId: parsed.data.breakpointSetId,
+          breakpointChangeReason: parsed.data.breakpointChangeReason,
+        })
+        : [];
+      if (results === null) return { kind: "not_found" as const };
 
       const needsReview = results.some((item) => item.needsReview);
       const status = needsReview ? "REVIEW_REQUIRED" : "DRAFT";

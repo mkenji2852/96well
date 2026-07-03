@@ -46,8 +46,8 @@ export async function POST(request: Request) {
               organizationId: actor.organizationId,
               name: `${parsed.data.sampleCode} Plate 1`,
               drugs: {
-                create: parsed.data.drugs.map((drug, rowIndex) => ({
-                  rowIndex,
+                create: parsed.data.drugs.map((drug, fallbackRowIndex) => ({
+                  rowIndex: drug.rowIndex ?? fallbackRowIndex,
                   drugName: drug.drugName,
                   unit: drug.unit,
                   concentrations: drug.concentrations,

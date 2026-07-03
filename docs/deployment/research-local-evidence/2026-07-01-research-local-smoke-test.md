@@ -1,5 +1,9 @@
 # 2026-07-01 Research Local Smoke Test Evidence
 
+> Historical evidence for the 2026-07-01 research-local release.
+>
+> This evidence predates `v0.2.0-research-local`. In v0.2.0, `ANONYMIZED` Excel output includes synthetic/anonymized Sample-ID, so use the 2026-07-02 evidence file for the v0.2.0 release candidate.
+
 ## Release target
 
 | Field | Value |
@@ -45,7 +49,7 @@ This evidence record does not authorize clinical, diagnostic, regulated, or cont
 | Manual review remains required before approval | PASS | Covered by image-review component and E2E tests. |
 | MIC/SIR calculation check | PASS | Covered by local unit/integration tests. |
 | Excel export defaults to or uses `ANONYMIZED` | PASS | Covered by Excel privacy profile unit tests. |
-| Exported Excel checked for no identifiers | PASS | Automated Excel tests verify ANONYMIZED workbook excludes sample code, notes, actor, internal IDs, hidden sheets, and identifying document properties. Manual review remains required before external sharing. |
+| Exported Excel checked for no identifiers | PASS | For the 2026-07-01 target, automated Excel tests verified ANONYMIZED workbook excluded sample code, notes, actor, internal IDs, hidden sheets, and identifying document properties. v0.2.0 changes Sample-ID handling; use the 2026-07-02 evidence for current review. |
 | Output marked/reviewed as research/non-clinical | PASS | This release target is explicitly research/local/non-clinical only. |
 
 ## GO / NO-GO decision

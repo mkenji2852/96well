@@ -57,6 +57,18 @@ export function applyStateToColumn(
   return next;
 }
 
+export function applyGrowthToLowerConcentrations(
+  states: PlateStateMap,
+  rowIndex: number,
+  columnIndex: number,
+): PlateStateMap {
+  const next = { ...states };
+  for (let nextColumnIndex = columnIndex + 1; nextColumnIndex < PLATE_COLUMNS; nextColumnIndex += 1) {
+    next[wellKey(rowIndex, nextColumnIndex)] = "GROWTH";
+  }
+  return next;
+}
+
 export function countEmptyWells(states: PlateStateMap): number {
   return Object.values(states).filter((state) => state === "EMPTY").length;
 }

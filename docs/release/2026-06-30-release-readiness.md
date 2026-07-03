@@ -1,5 +1,9 @@
 # 2026-06-30 Release Readiness
 
+> Historical controlled-production readiness record.
+>
+> This record predates the `v0.2.0-research-local` scope change. It does not authorize the current research-local release for clinical, diagnostic, regulated, or controlled production use. In `v0.2.0-research-local`, `ANONYMIZED` Excel output includes synthetic/anonymized Sample-ID, so controlled production privacy requirements must be re-reviewed before any future production GO decision.
+
 ## Release summary
 
 This release prepares the 96-well antimicrobial susceptibility testing application for a controlled production deployment. The release focuses on clinical data integrity, authentication and authorization enforcement, image-assisted manual review safety, append-only MIC/S/I/R result history, privacy-aware Excel export, BreakpointSet lifecycle control, offline conflict handling, and PostgreSQL production hardening.
@@ -87,7 +91,7 @@ The PostgreSQL job success is important because local development can run SQLite
 ## Excel export controls verified
 
 - Default export profile is `ANONYMIZED`.
-- `ANONYMIZED` excludes sample code, notes, actor identity, internal IDs, and raw audit JSON.
+- For the 2026-06-30 controlled-production candidate, `ANONYMIZED` was expected to exclude sample code, notes, actor identity, internal IDs, and raw audit JSON. This expectation must be re-reviewed before any future controlled-production GO decision because `v0.2.0-research-local` includes synthetic/anonymized Sample-ID.
 - `CLINICAL_INTERNAL` can include facility-internal clinical identifiers only within permission and profile policy.
 - `CLINICAL_INTERNAL` notes require explicit authorization and warning/acknowledgement.
 - `AUDIT_FULL` is limited to ADMIN/AUDITOR-equivalent permission and requires an export reason.
