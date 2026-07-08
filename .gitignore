@@ -4,6 +4,7 @@ node_modules
 .env
 .env.local
 .env.production
+.env.research-public
 
 *.db
 *.sqlite
