@@ -5,7 +5,7 @@ import type { UserRole } from "@/types/domain";
 
 const permissions = {
   TECHNICIAN: [
-    "sample:read", "sample:create", "plate:read", "plate:write",
+    "sample:read", "sample:create", "sample:delete", "plate:read", "plate:write",
     "export:anonymized", "breakpoint:read",
   ],
   REVIEWER: [
@@ -13,7 +13,7 @@ const permissions = {
     "export:anonymized", "export:clinical", "breakpoint:read",
   ],
   ADMIN: [
-    "sample:read", "sample:create", "plate:read", "plate:write", "plate:review",
+    "sample:read", "sample:create", "sample:delete", "plate:read", "plate:write", "plate:review",
     "export:anonymized", "export:clinical", "export:audit", "export:notes",
     "breakpoint:read", "breakpoint:write",
   ],

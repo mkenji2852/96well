@@ -191,13 +191,13 @@ export function ImageReviewWorkspace({ enabled = true }: { enabled?: boolean }) 
     return well.confirmed && well.state !== predictedState && well.reason.trim().length === 0;
   });
   const breakpointChanged = Boolean(
+    breakpointSetId.trim() &&
     activeAssessment?.plate.lastBreakpointSetId &&
     activeAssessment.plate.lastBreakpointSetId !== breakpointSetId.trim(),
   );
   const canApprove = isEditable &&
     allRequiredReviewed &&
     overrideProblems.length === 0 &&
-    breakpointSetId.trim().length > 0 &&
     (!breakpointChanged || breakpointChangeReason.trim().length > 0);
 
   const loadAssessments = useCallback(async () => {
@@ -502,8 +502,9 @@ export function ImageReviewWorkspace({ enabled = true }: { enabled?: boolean }) 
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            breakpointSetId: breakpointSetId.trim(),
-            breakpointChangeReason: activeAssessment.plate.lastBreakpointSetId &&
+            ...(breakpointSetId.trim() ? { breakpointSetId: breakpointSetId.trim() } : {}),
+            breakpointChangeReason: breakpointSetId.trim() &&
+              activeAssessment.plate.lastBreakpointSetId &&
               activeAssessment.plate.lastBreakpointSetId !== breakpointSetId.trim()
               ? breakpointChangeReason.trim() || undefined
               : undefined,
@@ -649,6 +650,7 @@ export function ImageReviewWorkspace({ enabled = true }: { enabled?: boolean }) 
           <div className="brand-mark" aria-hidden="true"><span /><span /><span /><span /></div>
           <div className="brand-copy"><strong>MIC Plate</strong><small>IMAGE REVIEW</small></div>
           <div className="review-role-badge" aria-live="polite">{user ? `${user.role} / ${user.organizationId}` : "認証確認中"}</div>
+          <a className="secondary-button header-back-button" href="/">初期画面へ戻る</a>
         </header>
 
         <section className="review-hero">
@@ -820,9 +822,9 @@ export function ImageReviewWorkspace({ enabled = true }: { enabled?: boolean }) 
 
                 {canReview(user?.role) ? (
                   <section className="review-action-panel" aria-label="承認と差戻し">
-                    <label>承認時BreakpointSet
+                    <label>承認時BreakpointSet（任意）
                       <select value={breakpointSetId} onChange={(event) => setBreakpointSetId(event.target.value)} disabled={!isEditable}>
-                        <option value="">承認済み版を選択</option>
+                        <option value="">選択しない（MIC/SIR再計算なし）</option>
                         {breakpointSets.map((set) => (
                           <option key={set.id} value={set.id}>{set.standard} {set.version} / {set.organism ?? "全菌種"}</option>
                         ))}
@@ -846,7 +848,7 @@ export function ImageReviewWorkspace({ enabled = true }: { enabled?: boolean }) 
                     </div>
                     {!allRequiredReviewed && <p className="validation-hint">承認には全96ウェルの確認が必要です。</p>}
                     {overrideProblems.length > 0 && <p className="validation-hint">overrideされたウェルには理由が必要です。</p>}
-                    {!breakpointSetId.trim() && <p className="validation-hint">BreakpointSet IDを入力してください。</p>}
+                    {!breakpointSetId.trim() && <p className="validation-hint">BreakpointSet未選択でも承認できます。この場合、MIC/SIR再計算はスキップします。</p>}
                     {breakpointChanged && !breakpointChangeReason.trim() && <p className="validation-hint">BreakpointSet変更理由が必要です。</p>}
                     {activeAssessment.status !== "REVIEW_REQUIRED" && <p className="validation-hint">このassessmentは{activeAssessment.status}のため編集できません。</p>}
                   </section>

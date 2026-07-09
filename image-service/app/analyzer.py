@@ -10,6 +10,7 @@ from .models import AnalysisResponse, QcFlags, WellCenter, WellFeatures, WellPre
 
 SERVICE_VERSION = "opencv-grid-v1"
 EXPECTED_WELLS = 96
+MAX_ANALYSIS_DIMENSION = 1200
 
 
 @dataclass(frozen=True)
@@ -27,6 +28,17 @@ def decode_image(content: bytes) -> np.ndarray:
     return image
 
 
+def resize_for_analysis(image: np.ndarray) -> np.ndarray:
+    height, width = image.shape[:2]
+    largest = max(height, width)
+    if largest <= MAX_ANALYSIS_DIMENSION:
+        return image
+    scale = MAX_ANALYSIS_DIMENSION / float(largest)
+    resized_width = max(1, int(round(width * scale)))
+    resized_height = max(1, int(round(height * scale)))
+    return cv2.resize(image, (resized_width, resized_height), interpolation=cv2.INTER_AREA)
+
+
 def preprocess_image(image: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     kernel = max(31, (min(gray.shape) // 12) | 1)
@@ -34,7 +46,7 @@ def preprocess_image(image: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     corrected = cv2.divide(gray, np.maximum(illumination, 1), scale=180)
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     enhanced = clahe.apply(corrected)
-    denoised = cv2.fastNlMeansDenoising(enhanced, None, h=7, templateWindowSize=7, searchWindowSize=21)
+    denoised = cv2.medianBlur(enhanced, 3)
     return gray, denoised
 
 
@@ -173,6 +185,7 @@ def predict_well(
 def analyze_image(image: np.ndarray, confidence_threshold: float = 0.85) -> AnalysisResponse:
     if not 0 <= confidence_threshold <= 1:
         raise ValueError("confidence_threshold must be between 0 and 1")
+    image = resize_for_analysis(image)
     gray, denoised = preprocess_image(image)
     qc_score, qc_flags = assess_quality(gray)
     mapped = detect_wells(denoised)

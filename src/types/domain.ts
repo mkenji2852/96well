@@ -62,13 +62,15 @@ export interface DrugConfigInput {
   rowIndex?: number;
   drugName: string;
   unit: string;
-  concentrations: number[];
+  concentrations?: number[];
+  wells?: Array<{ rowIndex: number; columnIndex: number; concentration: number }>;
 }
 
 export interface CreateSampleRequest {
   sampleCode: string;
   organism?: string;
   notes?: string;
+  plateName?: string;
   drugs: DrugConfigInput[];
 }
 
@@ -112,7 +114,7 @@ export interface PlateDrugView {
   rowIndex: number;
   drugName: string;
   unit: string;
-  concentrations: number[];
+  concentrations: unknown;
 }
 
 export interface PlateView {

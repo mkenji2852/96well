@@ -188,11 +188,14 @@ export async function POST(request: Request, { params }: RouteContext) {
       });
 
       await tx.plate.update({ where: { id }, data: { wellRevision: { increment: 1 } } });
-      const results = await recalculatePlateResults(tx, id, currentActor, {
-        breakpointSetId: parsed.data.breakpointSetId,
-        breakpointChangeReason: parsed.data.breakpointChangeReason,
-      });
-      if (!results) return { kind: "not_found" as const };
+      const selectedBreakpointSetId = parsed.data.breakpointSetId?.trim();
+      const results = selectedBreakpointSetId
+        ? await recalculatePlateResults(tx, id, currentActor, {
+          breakpointSetId: selectedBreakpointSetId,
+          breakpointChangeReason: parsed.data.breakpointChangeReason,
+        })
+        : [];
+      if (results === null) return { kind: "not_found" as const };
       await tx.plate.update({ where: { id }, data: { status: "APPROVED" } });
       await tx.auditLog.create({
         data: {

@@ -214,6 +214,47 @@ describe("buildPlateWorkbook privacy profiles", () => {
     }
   });
 
+  it("adds raw MIC fallback rows to Summary when breakpoint calculation was skipped", async () => {
+    const fallbackPlate = plate();
+    fallbackPlate.rawMics = [];
+    fallbackPlate.wells = (fallbackPlate.drugs[0].concentrations as number[]).map((_, columnIndex) => ({
+      rowIndex: 0,
+      columnIndex,
+      state: columnIndex < 6 ? "INHIBITED" : "GROWTH",
+      source: "MANUAL",
+      confidence: null,
+      needsReview: false,
+      observedAt: generatedAt,
+    }));
+
+    const buffer = await buildPlateWorkbook({
+      metadata: metadata("ANONYMIZED", {
+        breakpointSetId: null,
+        breakpointStandard: null,
+        breakpointVersion: null,
+        breakpointContentHash: null,
+        breakpointStatus: null,
+        breakpointApprovedByUserId: null,
+        breakpointApprovedAt: null,
+        snapshot: {
+          ...metadata("ANONYMIZED").snapshot,
+          breakpointSetId: null,
+          rawMicIds: [],
+          sirInterpretationIds: [],
+        },
+      }),
+      plate: fallbackPlate,
+      auditLogs: auditLogs(),
+    });
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer);
+    const text = workbookText(workbook);
+
+    expect(text).toContain("NO_BREAKPOINT");
+    expect(text).toContain("broth-microdilution-v2");
+    expect(text).toContain("@Drug X");
+  });
+
   it("adds InterpretationHistory and allowed audit fields only for AUDIT_FULL", async () => {
     const workbook = await loadWorkbook("AUDIT_FULL", {
       reason: "Regulatory inspection",

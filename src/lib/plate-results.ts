@@ -1,6 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import type { AuthenticatedActor } from "@/lib/auth";
 import { assertBreakpointContentHash, BreakpointLifecycleError } from "@/lib/breakpoint-lifecycle";
+import { normalizeDrugAssignments } from "@/lib/drug-layout";
 import { calculateRawMic, micRationale } from "@/lib/mic";
 import { interpretSir } from "@/lib/rule-engine";
 import type { BreakpointStandard, MicModifier, RawMicOperator, SirCategory, WellState } from "@/types/domain";
@@ -243,9 +244,10 @@ export async function recalculatePlateResults(
   const results: PlateResultSummary[] = [];
 
   for (const drug of plate.drugs) {
-    const concentrations = drug.concentrations as number[];
-    const states = concentrations.map((_, columnIndex) =>
-      finalWells.find((well) => well.rowIndex === drug.rowIndex && well.columnIndex === columnIndex)?.state ?? "UNREAD",
+    const assignments = normalizeDrugAssignments(drug);
+    const concentrations = assignments.map((assignment) => assignment.concentration);
+    const states = assignments.map((assignment) =>
+      finalWells.find((well) => well.rowIndex === assignment.rowIndex && well.columnIndex === assignment.columnIndex)?.state ?? "UNREAD",
     ) as WellState[];
     const raw = calculateRawMic(concentrations, states);
     const breakpointRule = selectRule(breakpointSet, drug.drugName, plate.sample.organism);

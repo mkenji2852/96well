@@ -1,5 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { authErrorResponse } from "@/lib/api-auth-error";
 import { requireAuthenticatedUser } from "@/lib/auth";
 import { analyzePlateImage } from "@/lib/image-analysis";
@@ -15,7 +17,16 @@ function jsonError(code: string, message: string, status: number): NextResponse 
 
 function safeImageName(image: Blob): string {
   const name = "name" in image && typeof image.name === "string" ? image.name : "plate-image.jpg";
-  return name.slice(0, 500);
+  return name.replace(/[^\w.\-]+/g, "_").slice(0, 120) || "plate-image.jpg";
+}
+
+async function saveImageForPreview(image: Blob, assessmentId: string, imageName: string): Promise<string> {
+  const extension = path.extname(imageName) || ".jpg";
+  const fileName = `${assessmentId}${extension}`;
+  const uploadDir = path.join(process.cwd(), "public", "uploads", "image-assessments");
+  await mkdir(uploadDir, { recursive: true });
+  await writeFile(path.join(uploadDir, fileName), Buffer.from(await image.arrayBuffer()));
+  return `/uploads/image-assessments/${fileName}`;
 }
 
 export async function GET(request: Request, { params }: RouteContext) {
@@ -57,14 +68,14 @@ export async function POST(request: Request, { params }: RouteContext) {
     const form = await request.formData();
     const image = form.get("image");
     if (!(image instanceof Blob)) return jsonError("IMAGE_REQUIRED", "画像ファイルが必要です。", 400);
-    const imageReference = safeImageName(image);
+    const originalImageName = safeImageName(image);
 
     const assessment = await prisma.$transaction(async (tx) => {
       const created = await tx.imageAssessment.create({
         data: {
           plateId: id,
           uploadedByUserId: actor.userId,
-          imageReference,
+          imageReference: originalImageName,
           status: "PROCESSING",
           manualReviewRequired: true,
         },
@@ -80,7 +91,7 @@ export async function POST(request: Request, { params }: RouteContext) {
             entityId: created.id,
             afterJson: {
               plateId: id,
-              imageReference,
+              imageReference: originalImageName,
               manualReviewRequired: true,
               organizationId: actor.organizationId,
               sessionId: actor.sessionId,
@@ -103,6 +114,8 @@ export async function POST(request: Request, { params }: RouteContext) {
       return created;
     });
     assessmentId = assessment.id;
+    const imageReference = await saveImageForPreview(image, assessment.id, originalImageName);
+    await prisma.imageAssessment.update({ where: { id: assessment.id }, data: { imageReference } });
 
     let analysis;
     try {

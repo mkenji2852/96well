@@ -1,7 +1,8 @@
 import ExcelJS from "exceljs";
-import { formatMic } from "@/lib/mic";
+import { normalizeDrugAssignments } from "./drug-layout";
+import { calculateRawMic, formatMic } from "@/lib/mic";
 import { formatInterpretation } from "@/lib/rule-engine";
-import type { ExportProfile, MicModifier, NoBreakpointOutputPolicy, RawMicOperator, SirCategory } from "@/types/domain";
+import type { ExportProfile, MicModifier, NoBreakpointOutputPolicy, RawMicOperator, SirCategory, WellState } from "@/types/domain";
 
 export const EXPORT_PROFILES = ["ANONYMIZED", "CLINICAL_INTERNAL", "AUDIT_FULL"] as const satisfies readonly ExportProfile[];
 
@@ -186,10 +187,11 @@ function wellName(rowIndex: number, columnIndex: number): string {
   return `${String.fromCharCode(65 + rowIndex)}${columnIndex + 1}`;
 }
 
-function concentrationFor(drug: { concentrations: unknown }, columnIndex: number): number | null {
-  const concentrations = Array.isArray(drug.concentrations) ? drug.concentrations : [];
-  const value = concentrations[columnIndex];
-  return typeof value === "number" ? value : null;
+function normalizeWellState(value: string | undefined): WellState {
+  if (value === "UNREAD" || value === "GROWTH" || value === "INHIBITED" || value === "CONTAMINATED" || value === "SKIPPED") {
+    return value;
+  }
+  return "UNREAD";
 }
 
 function addTitle(sheet: ExcelJS.Worksheet, title: string): void {
@@ -261,6 +263,40 @@ function addSummarySheet(workbook: ExcelJS.Workbook, { plate, metadata }: Export
     interpretationCell.font = { bold: true };
   }
 
+  const currentMicDrugIds = new Set(currentRawMics(plate).map((mic) => mic.plateDrugId).filter(Boolean));
+  for (const drug of plate.drugs) {
+    if (currentMicDrugIds.has(drug.id)) continue;
+    const assignments = normalizeDrugAssignments(drug);
+    if (assignments.length === 0) continue;
+
+    const states = assignments.map((assignment) => normalizeWellState(
+      plate.wells.find((well) => well.rowIndex === assignment.rowIndex && well.columnIndex === assignment.columnIndex)?.state,
+    ));
+    const raw = calculateRawMic(assignments.map((assignment) => assignment.concentration), states);
+    const common = [
+      safeExcelText(plate.sample.sampleCode),
+      ...(metadata.profile === "ANONYMIZED" ? [metadata.pseudonymousSampleId] : []),
+      safeExcelText(plate.sample.organism ?? ""),
+      safeExcelText(drug.drugName),
+      formatMic(raw.value, raw.rawMicOperator ?? raw.modifier),
+      raw.value,
+      safeExcelText(drug.unit),
+      formatInterpretation("NO_BREAKPOINT", metadata.noBreakpointPolicy),
+      "",
+      "",
+      safeExcelText(raw.method),
+      "",
+      raw.needsReview ? "YES" : "NO",
+      metadata.snapshot.wellRevision,
+    ];
+    const row = sheet.addRow(metadata.profile === "ANONYMIZED"
+      ? common
+      : [...common, "", "", ""]);
+    const interpretationCell = row.getCell(metadata.profile === "ANONYMIZED" ? 8 : 7);
+    interpretationCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE7E6E6" } };
+    interpretationCell.font = { bold: true };
+  }
+
   sheet.columns = (metadata.profile === "ANONYMIZED"
     ? [18, 20, 22, 20, 16, 12, 12, 18, 18, 18, 24, 24, 16, 20]
     : [18, 22, 20, 16, 12, 12, 18, 18, 18, 24, 24, 16, 20, 28, 28, 28]
@@ -281,18 +317,18 @@ function addWellsSheet(workbook: ExcelJS.Workbook, { plate, metadata }: ExportDa
   sheet.addRow(headers);
   styleHeader(sheet.getRow(1));
   for (const drug of plate.drugs) {
-    for (let columnIndex = 0; columnIndex < 12; columnIndex += 1) {
-      const well = plate.wells.find((item) => item.rowIndex === drug.rowIndex && item.columnIndex === columnIndex);
+    for (const assignment of normalizeDrugAssignments(drug)) {
+      const well = plate.wells.find((item) => item.rowIndex === assignment.rowIndex && item.columnIndex === assignment.columnIndex);
       sheet.addRow([
         ...(includeInternal ? [plate.id, plate.sampleId] : []),
         safeExcelText(plate.sample.sampleCode),
         ...(metadata.profile === "ANONYMIZED" ? [metadata.pseudonymousSampleId] : []),
         safeExcelText(plate.sample.organism ?? ""),
         safeExcelText(drug.drugName),
-        wellName(drug.rowIndex, columnIndex),
-        String.fromCharCode(65 + drug.rowIndex),
-        columnIndex + 1,
-        concentrationFor(drug, columnIndex),
+        wellName(assignment.rowIndex, assignment.columnIndex),
+        String.fromCharCode(65 + assignment.rowIndex),
+        assignment.columnIndex + 1,
+        assignment.concentration,
         safeExcelText(drug.unit),
         safeExcelText(well?.state ?? "UNREAD"),
         safeExcelText(well?.source ?? "MANUAL"),

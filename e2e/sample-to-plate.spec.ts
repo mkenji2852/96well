@@ -1,5 +1,11 @@
 import { expect, test } from "@playwright/test";
 
+async function dragAssignA1ToA12(page: import("@playwright/test").Page) {
+  await page.locator(".layout-grid-head.row-label").first().click();
+  await page.locator(".assignment-actions .primary-button").click();
+  await expect(page.getByText("Drug X: A1, A2, A3, A4, A5, A6, A7, A8 +4")).toBeVisible();
+}
+
 test("mobile plate entry supports state, bulk apply, details, validation, and save", async ({ page }) => {
   const plate = {
     id: "plate-1",
@@ -28,6 +34,9 @@ test("mobile plate entry supports state, bulk apply, details, validation, and sa
     const body = route.request().postDataJSON();
     expect(body.drugs[0].rowIndex).toBe(0);
     expect(body.drugs[0].drugName).toBe("Drug X");
+    expect(body.drugs[0].wells).toHaveLength(12);
+    expect(body.drugs[0].wells[0]).toMatchObject({ rowIndex: 0, columnIndex: 0, concentration: 64 });
+    expect(body.drugs[0].wells[11]).toMatchObject({ rowIndex: 0, columnIndex: 11, concentration: 0.03125 });
     await route.fulfill({
       status: 201,
       contentType: "application/json",
@@ -55,17 +64,41 @@ test("mobile plate entry supports state, bulk apply, details, validation, and sa
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(plate) });
     }
   });
+  await page.route("**/api/plates/plate-1/image-assessments", async (route) => {
+    expect(route.request().method()).toBe("POST");
+    expect(route.request().headers()["content-type"]).toContain("multipart/form-data");
+    await route.fulfill({
+      status: 201,
+      contentType: "application/json",
+      body: JSON.stringify({
+        assessment: { id: "assessment-1", status: "REVIEW_REQUIRED", manualReviewRequired: true },
+        analysis: { qc_score: 0.82, detected_wells: 96, confidence: 0.78, review_needed: true },
+      }),
+    });
+  });
 
   await page.goto("/");
+  await page.getByRole("button", { name: "プレート作成" }).first().click();
+  await page.getByLabel("薬剤名").first().fill("Drug X");
+  await dragAssignA1ToA12(page);
+  await page.getByRole("button", { name: "プレート設定を保存" }).click();
+
   await page.getByLabel("Sample-ID").fill("S-001");
   await page.getByPlaceholder("Escherichia coli").fill("E. coli");
-  await page.getByRole("button", { name: "薬剤配置へ" }).click();
-  await page.getByLabel("薬剤名").first().fill("Drug X");
   await page.getByRole("button", { name: "プレート入力へ" }).click();
 
   await expect(page.locator(".ui-well")).toHaveCount(96);
   await expect(page.locator(".plate-action-bar")).toHaveCSS("position", "fixed");
   await expect(page.locator(".plate-app-header")).toHaveCSS("position", "sticky");
+
+  await page.getByTestId("plate-image-input").setInputFiles({
+    name: "research-plate.jpg",
+    mimeType: "image/jpeg",
+    buffer: Buffer.from("fake image"),
+  });
+  await expect(page.getByTestId("image-upload-status")).toContainText("REVIEW_REQUIRED");
+  await expect(page.getByTestId("image-upload-status")).toContainText("YES");
+  await expect(page.getByRole("link", { name: "画像レビューへ" })).toHaveAttribute("href", "/review/image");
 
   await page.getByRole("button", { name: "A1: 未入力" }).click();
   await expect(page.getByRole("button", { name: "A1: 発育あり" })).toBeVisible();

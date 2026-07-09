@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
 import { authErrorResponse } from "@/lib/api-auth-error";
 import { requireAuthenticatedUser } from "@/lib/auth";
+import { flexibleConcentrations } from "@/lib/drug-layout";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { createSampleSchema } from "@/lib/validation";
@@ -44,14 +46,19 @@ export async function POST(request: Request) {
           plates: {
             create: {
               organizationId: actor.organizationId,
-              name: `${parsed.data.sampleCode} Plate 1`,
+              name: parsed.data.plateName || `${parsed.data.sampleCode} Plate 1`,
               drugs: {
-                create: parsed.data.drugs.map((drug, fallbackRowIndex) => ({
-                  rowIndex: drug.rowIndex ?? fallbackRowIndex,
-                  drugName: drug.drugName,
-                  unit: drug.unit,
-                  concentrations: drug.concentrations,
-                })),
+                create: parsed.data.drugs.map((drug, fallbackRowIndex) => {
+                  const concentrations = (drug.wells
+                    ? flexibleConcentrations(drug.wells)
+                    : drug.concentrations ?? []) as Prisma.InputJsonValue;
+                  return {
+                    rowIndex: drug.rowIndex ?? fallbackRowIndex,
+                    drugName: drug.drugName,
+                    unit: drug.unit,
+                    concentrations,
+                  };
+                }),
               },
             },
           },

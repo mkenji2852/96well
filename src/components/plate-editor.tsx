@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { FormEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
+import type { ChangeEvent, FormEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
+import { buildWellDrugDetailMap } from "@/lib/drug-layout";
 import {
   deleteLocalDraft,
   flushSyncQueue,
@@ -95,6 +96,15 @@ const copy = {
     exporting: "生成中",
     exportReady: "Excelをダウンロードできます。",
     backToSamples: "Sample選択へ戻る",
+    deleteSample: "Sample削除",
+    imageTitle: "写真による簡易判定",
+    imageDescription: "プレート写真をアップロードして、OpenCVによる補助的な発育予測を作成します。結果は必ずレビュー待ちになり、承認前に正式結果へは反映されません。",
+    imageChoose: "写真を選択して解析",
+    imageUploading: "画像解析中",
+    imageSuccess: "画像解析結果をレビュー待ちに登録しました。",
+    imageReviewLink: "画像レビューへ",
+    imageServiceRequired: "画像解析サービスが起動している必要があります。",
+    imageInvalid: "画像ファイルを選択してください。",
   },
   en: {
     title: "96-well plate entry",
@@ -144,6 +154,15 @@ const copy = {
     exporting: "Generating",
     exportReady: "Excel is ready to download.",
     backToSamples: "Back to samples",
+    deleteSample: "Delete sample",
+    imageTitle: "Photo-assisted growth check",
+    imageDescription: "Upload a plate photo to create OpenCV-assisted growth predictions. The result always goes to manual review and is not used as an official result before approval.",
+    imageChoose: "Choose photo and analyze",
+    imageUploading: "Analyzing image",
+    imageSuccess: "Image analysis was registered for manual review.",
+    imageReviewLink: "Open image review",
+    imageServiceRequired: "The image analysis service must be running.",
+    imageInvalid: "Choose an image file.",
   },
 } as const;
 
@@ -178,14 +197,14 @@ function createInitialStates(plate: PlateView): PlateStateMap {
 }
 
 function createInitialDetails(plate: PlateView): WellDetailsMap {
-  const drugsByRow = new Map(plate.drugs.map((drug) => [drug.rowIndex, drug]));
+  const drugsByWell = buildWellDrugDetailMap(plate.drugs);
   const details: WellDetailsMap = {};
   for (let rowIndex = 0; rowIndex < PLATE_ROWS; rowIndex += 1) {
     for (let columnIndex = 0; columnIndex < PLATE_COLUMNS; columnIndex += 1) {
-      const drug = drugsByRow.get(rowIndex);
+      const drug = drugsByWell.get(wellKey(rowIndex, columnIndex));
       details[wellKey(rowIndex, columnIndex)] = {
         drugName: drug?.drugName ?? "",
-        concentration: drug?.concentrations[columnIndex] === undefined ? "" : String(drug.concentrations[columnIndex]),
+        concentration: drug?.concentration === undefined ? "" : String(drug.concentration),
         unit: drug?.unit ?? "",
         note: "",
       };
@@ -239,16 +258,47 @@ function exportProfileDescription(profile: ExportProfile, t: typeof copy[Locale]
   return t.exportAnonymized;
 }
 
+interface ImageUploadResponse {
+  assessment?: {
+    id?: string;
+    status?: string;
+    manualReviewRequired?: boolean;
+  };
+  analysis?: {
+    qc_score?: number;
+    detected_wells?: number;
+    confidence?: number;
+    review_needed?: boolean;
+  };
+}
+
+async function readApiJson<T>(response: Response): Promise<T> {
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) {
+    const text = await response.text().catch(() => "");
+    const trimmed = text.trim();
+    const detail = trimmed.startsWith("<!DOCTYPE") || trimmed.startsWith("<html")
+      ? "Server returned an HTML error page instead of JSON."
+      : trimmed;
+    throw new Error(detail || `Unexpected non-JSON response (${response.status}).`);
+  }
+  const data = await response.json().catch(() => null) as { error?: { message?: string } } | null;
+  if (!response.ok) throw new Error(data?.error?.message ?? `Request failed (${response.status}).`);
+  return data as T;
+}
+
 export function PlateEditor({
   plate,
   locale,
   onLocaleChange,
   onBack,
+  onDeleteSample,
 }: {
   plate: PlateView;
   locale: Locale;
   onLocaleChange: (locale: Locale) => void;
   onBack: () => void;
+  onDeleteSample?: () => void;
 }) {
   const [wells, setWells] = useState<PlateStateMap>(() => createInitialStates(plate));
   const [details, setDetails] = useState<WellDetailsMap>(() => createInitialDetails(plate));
@@ -272,6 +322,10 @@ export function PlateEditor({
   const [exportBusy, setExportBusy] = useState(false);
   const [exportError, setExportError] = useState("");
   const [exportDownload, setExportDownload] = useState<{ href: string; fileName: string } | null>(null);
+  const [imageUploadBusy, setImageUploadBusy] = useState(false);
+  const [imageUploadError, setImageUploadError] = useState("");
+  const [imageUploadResult, setImageUploadResult] = useState<ImageUploadResponse | null>(null);
+  const [imageFileName, setImageFileName] = useState("");
   const [wellContextMenu, setWellContextMenu] = useState<WellContextMenu | null>(null);
   const longPressTimer = useRef<number | null>(null);
   const longPressActivated = useRef(false);
@@ -509,7 +563,33 @@ export function PlateEditor({
   };
 
   const markLowerConcentrationsAsGrowth = (menu: WellContextMenu) => {
-    commit(applyGrowthToLowerConcentrations(wells, menu.rowIndex, menu.columnIndex));
+    const selectedDetail = details[wellKey(menu.rowIndex, menu.columnIndex)];
+    const selectedConcentration = Number(selectedDetail?.concentration);
+    if (selectedDetail?.drugName && Number.isFinite(selectedConcentration)) {
+      const next = { ...wells };
+      for (let rowIndex = 0; rowIndex < PLATE_ROWS; rowIndex += 1) {
+        for (let columnIndex = 0; columnIndex < PLATE_COLUMNS; columnIndex += 1) {
+          const key = wellKey(rowIndex, columnIndex);
+          const detail = details[key];
+          const concentration = Number(detail?.concentration);
+          if (
+            detail?.drugName === selectedDetail.drugName &&
+            detail.unit === selectedDetail.unit &&
+            Number.isFinite(concentration)
+          ) {
+            if (concentration < selectedConcentration) next[key] = "GROWTH";
+            if (concentration >= selectedConcentration) next[key] = "NO_GROWTH";
+          }
+        }
+      }
+      commit(next);
+    } else {
+      const next = applyGrowthToLowerConcentrations(wells, menu.rowIndex, menu.columnIndex);
+      for (let columnIndex = 0; columnIndex <= menu.columnIndex; columnIndex += 1) {
+        next[wellKey(menu.rowIndex, columnIndex)] = "NO_GROWTH";
+      }
+      commit(next);
+    }
     setWellContextMenu(null);
   };
 
@@ -651,6 +731,42 @@ export function PlateEditor({
     }
   };
 
+  const uploadPlateImage = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    setImageUploadError("");
+    setImageUploadResult(null);
+
+    if (!file) return;
+    setImageFileName(file.name);
+    if (!file.type.startsWith("image/")) {
+      setImageUploadError(t.imageInvalid);
+      return;
+    }
+    if (!actor) {
+      setImageUploadError(t.authRequired);
+      return;
+    }
+
+    setImageUploadBusy(true);
+    try {
+      const form = new FormData();
+      form.append("image", file, file.name);
+      const response = await fetch(`/api/plates/${plate.id}/image-assessments`, {
+        method: "POST",
+        body: form,
+      });
+      const data = await readApiJson<ImageUploadResponse>(response);
+      setImageUploadResult(data);
+      setMessage(t.imageSuccess);
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : t.imageServiceRequired;
+      setImageUploadError(message.includes("fetch") ? t.imageServiceRequired : message);
+    } finally {
+      setImageUploadBusy(false);
+    }
+  };
+
   return (
     <main className="plate-page">
       <header className="app-header plate-app-header">
@@ -658,6 +774,11 @@ export function PlateEditor({
         <div className="brand-copy"><strong>MIC Plate</strong><small>RECORDER</small></div>
         <div className="header-empty-count" aria-live="polite"><b>{emptyCount}</b><span>{t.remaining}</span></div>
         <button type="button" className="secondary-button header-back-button" onClick={onBack}>{t.backToSamples}</button>
+        {onDeleteSample && (
+          <button type="button" className="secondary-button header-delete-button danger-action" onClick={onDeleteSample}>
+            {t.deleteSample}
+          </button>
+        )}
         <button className="language-button" onClick={() => onLocaleChange(locale === "ja" ? "en" : "ja")}>{locale === "ja" ? "EN" : "日本語"}</button>
       </header>
 
@@ -801,6 +922,39 @@ export function PlateEditor({
 
       {message && <p className="status-message" role="status">{message}</p>}
 
+      <section className="image-panel image-upload-panel" aria-labelledby="image-upload-title">
+        <div>
+          <p className="eyebrow">IMAGE ASSIST</p>
+          <h2 id="image-upload-title">{t.imageTitle}</h2>
+          <p>{t.imageDescription}</p>
+          {imageFileName && <p className="image-file-name">{imageFileName}</p>}
+          {imageUploadResult?.assessment && (
+            <dl className="image-upload-summary" data-testid="image-upload-status">
+              <div><dt>Status</dt><dd>{imageUploadResult.assessment.status ?? "REVIEW_REQUIRED"}</dd></div>
+              <div><dt>Manual review</dt><dd>{imageUploadResult.assessment.manualReviewRequired === false ? "NO" : "YES"}</dd></div>
+              <div><dt>Wells</dt><dd>{imageUploadResult.analysis?.detected_wells ?? "N/A"}</dd></div>
+              <div><dt>QC</dt><dd>{imageUploadResult.analysis?.qc_score ?? "N/A"}</dd></div>
+            </dl>
+          )}
+          {imageUploadError && <p className="error-message image-upload-error" role="alert">{imageUploadError}</p>}
+        </div>
+        <div className="image-upload-actions">
+          <label className={`file-button secondary-button ${imageUploadBusy ? "is-busy" : ""}`}>
+            <input
+              data-testid="plate-image-input"
+              type="file"
+              accept="image/*"
+              disabled={imageUploadBusy || !actor}
+              onChange={uploadPlateImage}
+            />
+            {imageUploadBusy ? t.imageUploading : t.imageChoose}
+          </label>
+          {imageUploadResult?.assessment && (
+            <a className="primary-button image-review-link" href="/review/image">{t.imageReviewLink}</a>
+          )}
+        </div>
+      </section>
+
       <section className="export-panel" aria-labelledby="export-title">
         <div>
           <p className="eyebrow">EXPORT</p>
@@ -861,7 +1015,7 @@ export function PlateEditor({
         >
           <strong>{coordinate(wellContextMenu.rowIndex, wellContextMenu.columnIndex)}</strong>
           <button type="button" role="menuitem" onClick={() => markLowerConcentrationsAsGrowth(wellContextMenu)}>
-            {locale === "ja" ? "このウェルより低濃度を発育あり" : "Mark lower concentrations as growth"}
+            {locale === "ja" ? "低濃度を発育あり／高濃度を発育なし" : "Lower growth / higher no growth"}
           </button>
           <button type="button" role="menuitem" onClick={() => { openDetails(wellContextMenu.key); setWellContextMenu(null); }}>
             {t.details}

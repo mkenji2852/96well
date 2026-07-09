@@ -34,7 +34,7 @@ vi.mock("@/lib/image-analysis", () => ({ analyzePlateImage: mocks.analyzePlateIm
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     plate: { findFirst: mocks.plateFindFirst },
-    imageAssessment: { findMany: mocks.imageAssessmentFindMany },
+    imageAssessment: { findMany: mocks.imageAssessmentFindMany, update: mocks.imageAssessmentUpdate },
     $transaction: mocks.transaction,
   },
 }));
