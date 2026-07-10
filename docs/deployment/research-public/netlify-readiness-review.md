@@ -12,7 +12,7 @@ Date: 2026-07-07
 | Runtime declarations | No explicit `runtime = "edge"` found | Node runtime is expected; this is appropriate for Prisma and ExcelJS. |
 | Streaming/background jobs | No scheduled jobs or background workers found in the app routes | Compatible. |
 | Runtime child process | No Node app route starts Python or child processes | Compatible. |
-| Runtime filesystem writes | Image upload route writes to `public/uploads/image-assessments` | Not compatible for Phase 1. Disable image upload or move to object storage in Phase 2. |
+| Runtime filesystem writes | No app route filesystem write is required for Phase 1 image-disabled mode | Compatible for Phase 1. Future image storage must use object storage, not local filesystem persistence. |
 | Separate image service | FastAPI/OpenCV service under `image-service` | External service required; not Netlify compatible directly. |
 | Long-running work | Image analysis HTTP call has a 30s timeout; Excel generation can be memory/time sensitive | Image: Phase 2 external service. Excel: compatible for small exports with size limits. |
 
@@ -24,7 +24,7 @@ Date: 2026-07-07
 | Breakpoint sets/rules | Compatible with changes | PostgreSQL hardening and app RBAC must remain enabled. |
 | MIC/SIR result history | Compatible with changes | PostgreSQL partial unique indexes must be applied. |
 | Excel export | Netlify compatible for small exports | Generated in memory, no persistent file required. Add response-size/timeout expectations. |
-| Image assessment upload | External service required / disable for Phase 1 | Current route writes to local filesystem and calls FastAPI. |
+| Image assessment upload | External service required / disable for Phase 1 | Server-side upload is disabled by default in research-public production before FastAPI analysis. |
 | Image review pages | Compatible only when backed by stored image references | For Phase 1, hide/disable UI and prevent direct API writes. |
 | Auth `/api/me` | Compatible with changes | Needs origin-bypass and Cloudflare Access integration decision. |
 
@@ -34,8 +34,8 @@ Date: 2026-07-07
 2. Direct `*.netlify.app`, deploy preview, and branch deploy access paths must still be tested in staging.
 3. Middleware performs Cloudflare Access perimeter verification in research-public production, but important API routes also enforce the same perimeter through `requireAuthenticatedUser`.
 4. Prisma in serverless can exhaust PostgreSQL connections without pooling.
-5. Runtime image upload writes to `public/uploads`, which is not a safe persistent storage model on Netlify Functions.
-6. The Phase 1 image-disabled mode must be enforced server-side, not only in UI.
+5. Any future image upload storage must not rely on Netlify local filesystem persistence.
+6. The Phase 1 image-disabled mode is enforced server-side and must be verified in real staging.
 
 ## Required pre-preview validation
 

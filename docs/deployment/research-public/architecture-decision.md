@@ -15,7 +15,7 @@ The app includes:
 - OIDC Bearer-token API authentication with DB-backed user role and organization resolution.
 - Development/local auth. During the audit, the working tree also contained an uncommitted research-public Basic Auth prototype; that prototype is not part of the approved Phase 1 architecture and must not be treated as an implemented security boundary.
 - Excel export generated in memory through ExcelJS.
-- Image upload/review routes that currently write preview images to `public/uploads/image-assessments` and call a separate FastAPI/OpenCV service through `IMAGE_ANALYSIS_URL`.
+- Image upload/review routes that call a separate FastAPI/OpenCV service through `IMAGE_ANALYSIS_URL` when enabled. In Phase 1 research-public production, image upload is disabled server-side before form parsing or analysis.
 
 ## Proposed Phase 1 architecture
 
@@ -47,7 +47,7 @@ Recommended option: **Cloudflare Access + application-side verification / fail-c
 | Cloudflare Access only | Not sufficient by itself unless direct Netlify URLs, deploy previews, and branch deploys are also protected or disabled. |
 | Cloudflare Access + app-side verification | Preferred. It protects the custom-domain path and gives the app a backstop against direct-origin access. |
 | Netlify-side protection only | Useful as an additional layer, but not enough to replace identity-aware access control. |
-| Basic Auth only | Acceptable only as temporary defense-in-depth for a small research preview; not recommended as the primary internet-facing control. |
+| Basic Auth only | Not acceptable as the sole internet-facing control. At most, it can be an additional defense-in-depth layer behind Cloudflare Access and app-side verification. |
 
 The app must not trust client-supplied role or organization claims. It should continue resolving role and organization from the database user record.
 
@@ -66,7 +66,7 @@ Phase 1 implementation note:
 3. Which PostgreSQL provider and connection pooling mode will be used.
 4. Whether migration execution is manual release procedure or protected CI workflow.
 5. Which user is the initial research-public app user and what organization it belongs to.
-6. Whether image routes are disabled entirely or return a controlled 404/503 while Phase 1 has image features off.
+6. Whether Phase 2 image routes should use object storage plus service-to-service authentication before image features are enabled.
 
 ## Non-goals
 

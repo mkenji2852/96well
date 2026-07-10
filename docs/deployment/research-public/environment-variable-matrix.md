@@ -1,43 +1,56 @@
 # Environment variable matrix
 
-Date: 2026-07-07
+Date: 2026-07-10
 
-Do not place real values in repository files. All production or preview secrets must be stored in the deployment platform secret manager.
+Do not place real values in repository files. All staging secrets must be stored in the deployment platform secret manager. `NEXT_PUBLIC_*` values are browser-visible and must never contain secrets.
 
-| Variable | Classification | Secret? | Netlify runtime? | Notes |
-| --- | --- | ---: | ---: | --- |
-| `NODE_ENV=production` | Netlify runtime required | No | Yes | Required for production-mode behavior. |
-| `POSTGRES_APP_DATABASE_URL` | Netlify runtime required | Yes | Yes | App-user PostgreSQL connection only. Prefer pooled/serverless-safe URL. |
-| `POSTGRES_PRISMA_DATABASE_URL` | Migration only | Yes | No | Migration-user connection. Do not expose to Netlify runtime. |
-| `POSTGRES_TEST_DATABASE_URL` | CI only | Yes | No | PostgreSQL integration tests. |
-| `POSTGRES_APP_TEST_DATABASE_URL` | CI only | Yes | No | App-user privilege tests. |
-| `POSTGRES_RESTORE_TEST_DATABASE_URL` | CI only | Yes | No | Backup/restore rehearsal. |
-| `DATABASE_URL` | Local development only | Usually no for SQLite | No for preview | SQLite local DB. Must not be used in internet-reachable preview runtime. |
-| `OIDC_ISSUER` | Optional auth provider config | No/metadata | If OIDC path used | Required for OIDC Bearer token mode. |
-| `OIDC_AUDIENCE` | Optional auth provider config | No/metadata | If OIDC path used | Required for OIDC Bearer token mode. |
-| `OIDC_JWKS_URL` | Optional auth provider config | No/metadata | If OIDC path used | Required for OIDC Bearer token verification. |
-| `DEV_AUTH_ENABLED` | Local development only | No | No | Must not be enabled outside development. |
-| `DEV_AUTH_USER_ID` | Local development only | Sensitive identifier | No | Requires existing DB user for local dev only. |
-| `RESEARCH_PUBLIC_MODE` | Research-public runtime control | No | Yes if used | Proposed preview mode; not clinical/controlled production. |
-| `CLOUDFLARE_ACCESS_TEAM_DOMAIN` | Runtime non-secret config | No/metadata | Yes | Used to build the Access issuer and JWKS URL. |
-| `CLOUDFLARE_ACCESS_AUD` | Runtime non-secret config | No/metadata | Yes | Cloudflare Access application audience. |
-| `CLOUDFLARE_ACCESS_JWKS_URL` | Runtime non-secret config | No/metadata | Optional | Override only when necessary; defaults to the team-domain certs endpoint. |
-| `RESEARCH_PUBLIC_ALLOWED_HOSTS` | Runtime non-secret config | No | Yes | Comma-separated canonical hosts. Direct Netlify hosts are rejected unless explicitly listed. |
-| `RESEARCH_PUBLIC_IMAGE_REVIEW_ENABLED` | Runtime non-secret config | No | Yes | Must be `false`/absent for Phase 1 unless Phase 2 storage/service controls exist. |
-| `RESEARCH_PUBLIC_IMAGE_UPLOAD_ENABLED` | Runtime non-secret config | No | Yes | Must be `false`/absent for Phase 1. Server-side upload default is deny. |
-| `NEXT_PUBLIC_IMAGE_REVIEW_ENABLED` | Browser-exposed feature flag | No | Yes | Set to `false` for Phase 1. Browser-visible; never secret. |
-| `IMAGE_ANALYSIS_URL` | Image service only | Internal URL maybe sensitive | No for Phase 1 | Phase 2 external service endpoint. |
+| Variable | Required? | Secret? | Browser/server | Staging runtime | Migration only | Placeholder/example | Validation behavior and missing behavior |
+| --- | ---: | ---: | --- | ---: | ---: | --- | --- |
+| `NODE_ENV=production` | Yes | No | Server/build | Yes | No | `production` | Required to activate production runtime behavior. |
+| `RESEARCH_PUBLIC_MODE=true` | Yes | No | Server/build | Yes | No | `true` | With production, enables research-public Access and fail-closed checks. |
+| `POSTGRES_APP_DATABASE_URL` | Yes | Yes | Server | Yes | No | secret-manager value only | Required in production runtime. Must be PostgreSQL. Missing or SQLite fails closed. Prefer pooled/serverless-safe app-user URL. |
+| `POSTGRES_PRISMA_DATABASE_URL` | Yes for migration, forbidden at runtime | Yes | Server | No | Yes | secret-manager value only | Used only for controlled migration/hardening. Must not be configured in Netlify runtime. Runtime does not fall back to it. |
+| `DATABASE_URL` | No for staging | Usually yes if remote | Server | No | No | not configured | SQLite/file values are forbidden in production runtime. Local SQLite is development-only. |
+| `OIDC_ISSUER` | Yes if existing app auth uses OIDC | No/metadata | Server | Yes | No | issuer placeholder | Existing app authentication requires valid OIDC config in production. Missing config causes authenticated API calls to fail closed. |
+| `OIDC_AUDIENCE` | Yes if OIDC used | No/metadata | Server | Yes | No | audience placeholder | Used for OIDC Bearer token audience verification. |
+| `OIDC_JWKS_URL` | Yes if OIDC used | No/metadata | Server | Yes | No | JWKS placeholder | Used for OIDC JWT signature verification. |
+| `CLOUDFLARE_ACCESS_TEAM_DOMAIN` | Yes | No/metadata | Server | Yes | No | team-domain placeholder | Required in research-public production. Builds issuer and default JWKS URL. Missing/invalid config fails closed. |
+| `CLOUDFLARE_ACCESS_AUD` | Yes | No/metadata | Server | Yes | No | Access AUD placeholder | Required for Access JWT audience verification. Missing config fails closed. |
+| `CLOUDFLARE_ACCESS_JWKS_URL` | Optional | No/metadata | Server | Optional | No | JWKS override placeholder | Optional override. If omitted, derived from team domain. Invalid URL fails closed. |
+| `RESEARCH_PUBLIC_ALLOWED_HOSTS` | Yes | No | Server | Yes | No | comma-separated host placeholders | Required. Host not in allow-list fails closed. Use canonical staging hosts only. |
+| `NEXT_PUBLIC_IMAGE_REVIEW_ENABLED` | Yes for Phase 1 | No | Browser | Yes | No | `false` | Browser-visible UI flag. Must be `false` in Phase 1. Not a security boundary. |
+| `RESEARCH_PUBLIC_IMAGE_REVIEW_ENABLED` | Yes for Phase 1 | No | Server | Yes | No | `false` | Server-side review enablement. In research-public production, omitted/false disables image review. |
+| `RESEARCH_PUBLIC_IMAGE_UPLOAD_ENABLED` | Yes for Phase 1 | No | Server | Yes | No | `false` | Server-side upload gate. In research-public production, omitted/false rejects upload before analysis. |
+| `IMAGE_ANALYSIS_URL` | No for Phase 1 | Internal URL may be sensitive | Server | No | No | not configured | Phase 2 only. If image upload is disabled, the route returns before this service is called. |
+| `DEV_AUTH_ENABLED` | No | No | Server | No | No | not configured | Development-only. If enabled outside development, auth fails closed. |
+| `DEV_AUTH_USER_ID` | No | Sensitive identifier | Server | No | No | not configured | Development-only DB user ID. Do not configure in staging runtime. |
+| `POSTGRES_TEST_DATABASE_URL` | No | Yes | CI | No | No | CI secret | CI PostgreSQL integration only. |
+| `POSTGRES_APP_TEST_DATABASE_URL` | No | Yes | CI | No | No | CI secret | CI app-user privilege tests only. |
+| `POSTGRES_RESTORE_TEST_DATABASE_URL` | No | Yes | CI | No | No | CI secret | CI restore rehearsal only. |
 
 ## Phase 1 Netlify runtime minimum
 
 - `NODE_ENV=production`
+- `RESEARCH_PUBLIC_MODE=true`
 - `POSTGRES_APP_DATABASE_URL`
-- OIDC configuration for existing application authentication
+- OIDC configuration required by existing app authentication
 - Cloudflare Access verification variables
 - `RESEARCH_PUBLIC_ALLOWED_HOSTS`
 - `NEXT_PUBLIC_IMAGE_REVIEW_ENABLED=false`
 - `RESEARCH_PUBLIC_IMAGE_REVIEW_ENABLED=false`
 - `RESEARCH_PUBLIC_IMAGE_UPLOAD_ENABLED=false`
 
-Do not configure migration credentials in the Netlify runtime environment.
+## Explicitly forbidden in Netlify runtime
 
+- SQLite `DATABASE_URL`
+- `POSTGRES_PRISMA_DATABASE_URL`
+- migration/admin DB credential
+- `DEV_AUTH_ENABLED`
+- `DEV_AUTH_USER_ID`
+- `IMAGE_ANALYSIS_URL` for Phase 1
+- any real patient identifiers or clinical data
+
+## Credential split
+
+- Runtime application credential: `POSTGRES_APP_DATABASE_URL`; least privilege; pooled/serverless-safe; stored only in Netlify runtime secret manager.
+- Migration credential: `POSTGRES_PRISMA_DATABASE_URL`; migration and hardening only; stored outside Netlify runtime; used manually or from a protected CI release workflow.

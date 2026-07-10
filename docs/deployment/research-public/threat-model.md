@@ -9,7 +9,7 @@ Scope: `v0.3.0-research-public-preview`, internet-reachable but limited to autho
 | Risk | Why it matters | Required mitigation before preview |
 | --- | --- | --- |
 | Direct Netlify origin bypass | Cloudflare Access on a custom domain does not automatically protect `*.netlify.app`, deploy previews, or branch deploys. | App-side Access JWT and host checks are implemented; real Netlify/Cloudflare staging must verify direct-origin denial. |
-| Image upload route writes to local filesystem | Uploaded images are not durable serverless storage unless object storage is added. | Server-side image upload is disabled by default in research-public production. Phase 2 must add object storage/service auth before enabling. |
+| Image upload enabled without storage/service design | Uploaded images and analysis calls require durable object storage and authenticated external service design. | Server-side image upload is disabled by default in research-public production. Phase 2 must add object storage/service auth before enabling. |
 | SQLite allowed in external research mode | Any internet-reachable runtime must not use local filesystem SQLite or automatic fallback. | Research-public production now requires PostgreSQL app URL and rejects SQLite / migration credential fallback. |
 | No Netlify deployment compatibility evidence | Next.js APIs, Prisma, and middleware need actual Netlify runtime verification. | Add a staging deployment test before any limited external preview. |
 
@@ -17,7 +17,7 @@ Scope: `v0.3.0-research-public-preview`, internet-reachable but limited to autho
 
 | Risk | Required mitigation |
 | --- | --- |
-| Basic Auth used as sole internet-facing control | Prefer Cloudflare Access. If Basic Auth remains, use it only as defense-in-depth with strong passwords and rate limiting upstream. |
+| Basic Auth used as sole internet-facing control | Do not use Basic Auth as the sole boundary. Use Cloudflare Access plus app-side Access JWT verification; any Basic Auth layer is defense-in-depth only. |
 | Middleware-only protection | Route Handlers must continue enforcing authentication/RBAC/organization checks. Page access also needs origin/access verification. |
 | Preview deployment exposure | Disable or protect deploy previews and branch deploys. Do not assume only the custom domain is reachable. |
 | Migration credential exposure | Keep `POSTGRES_PRISMA_DATABASE_URL` out of Netlify runtime. Use manual release procedure or protected CI only. |

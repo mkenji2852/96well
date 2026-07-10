@@ -34,9 +34,9 @@ Implementation sequence:
 10. Add origin-bypass controls for `*.netlify.app`, deploy previews, and branch deploys.
 11. App-side Cloudflare Access JWT verification is implemented as the Phase 1 origin verification backstop; staging must still validate real Cloudflare/Netlify behavior.
 12. Add serverless PostgreSQL pooling guidance and smoke tests.
-13. Add research-public CI checks: production env validation, image-disabled E2E, auth-boundary tests, and Netlify-compatible build.
+13. Use the `research-public-guardrails` CI job for Access-boundary, SQLite fail-closed, migration credential, and image-disabled tests.
 14. Run staging smoke tests with synthetic/anonymized data only.
-15. Record evidence before preview access is shared.
+15. Complete the staging readiness gate and smoke-test evidence before preview access is shared.
 
 Phase 1 acceptance gates:
 

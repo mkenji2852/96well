@@ -6,6 +6,8 @@ Planned branch: `feat/research-public-mvp`
 
 Planned release candidate: `v0.3.0-research-public-preview`
 
+Update: Phase 1 guardrails were implemented after this plan. Use [Research Public Preview Staging Gate](./research-public-preview-staging-gate.md) for the current staging-readiness decision.
+
 ## Release classification
 
 - Intended use: research / limited external / non-clinical.
