@@ -2,7 +2,7 @@
 
 Date: 2026-07-07
 
-Decision status: proposed, not implemented.
+Decision status: Phase 1 guardrails implemented; deployment not performed.
 
 ## Current-state architecture summary
 
@@ -50,6 +50,14 @@ Recommended option: **Cloudflare Access + application-side verification / fail-c
 | Basic Auth only | Acceptable only as temporary defense-in-depth for a small research preview; not recommended as the primary internet-facing control. |
 
 The app must not trust client-supplied role or organization claims. It should continue resolving role and organization from the database user record.
+
+Phase 1 implementation note:
+
+- `RESEARCH_PUBLIC_MODE=true` with `NODE_ENV=production` requires a valid `Cf-Access-Jwt-Assertion` header.
+- The Access JWT is cryptographically verified against the configured Cloudflare Access issuer and audience.
+- `RESEARCH_PUBLIC_ALLOWED_HOSTS` is checked as defense in depth for direct Netlify origin / deploy-preview bypass risk.
+- Existing application authentication remains required after the Access perimeter. Cloudflare Access verification is not a replacement for `requireAuthenticatedUser`, RBAC, or organization scope.
+- Image upload and image review are disabled by default in research-public production.
 
 ## Required design decisions before implementation
 

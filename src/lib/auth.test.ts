@@ -44,6 +44,60 @@ describe("requireAuthenticatedUser", () => {
     expect(actor).toEqual({ userId: "user-1", organizationId: "org-a", role: "TECHNICIAN", sessionId: "session-1" });
   });
 
+  it("checks the research-public perimeter before API authentication", async () => {
+    const request = new Request("https://research.example.test/api/samples", {
+      headers: { authorization: "Bearer signed-token" },
+    });
+    await expect(requireAuthenticatedUser(request, {
+      env: {
+        NODE_ENV: "production",
+        RESEARCH_PUBLIC_MODE: "true",
+        CLOUDFLARE_ACCESS_TEAM_DOMAIN: "research-team.cloudflareaccess.com",
+        CLOUDFLARE_ACCESS_AUD: "access-aud",
+        RESEARCH_PUBLIC_ALLOWED_HOSTS: "research.example.test",
+        OIDC_ISSUER: "https://issuer.example",
+        OIDC_AUDIENCE: "mic-api",
+        OIDC_JWKS_URL: "https://issuer.example/jwks",
+      },
+      verifyToken: async () => ({ payload: { sub: "subject-1", sid: "session-1" } }),
+      findUserBySubject: async () => ({
+        id: "user-1",
+        organizationId: "org-a",
+        role: "TECHNICIAN",
+        active: true,
+        organization: { active: true },
+      }),
+    })).rejects.toMatchObject({ code: "UNAUTHENTICATED" });
+  });
+
+  it("keeps existing OIDC/RBAC resolution after the research-public perimeter passes", async () => {
+    const request = new Request("https://research.example.test/api/samples", {
+      headers: { authorization: "Bearer signed-token" },
+    });
+    const actor = await requireAuthenticatedUser(request, {
+      env: {
+        NODE_ENV: "production",
+        RESEARCH_PUBLIC_MODE: "true",
+        CLOUDFLARE_ACCESS_TEAM_DOMAIN: "research-team.cloudflareaccess.com",
+        CLOUDFLARE_ACCESS_AUD: "access-aud",
+        RESEARCH_PUBLIC_ALLOWED_HOSTS: "research.example.test",
+        OIDC_ISSUER: "https://issuer.example",
+        OIDC_AUDIENCE: "mic-api",
+        OIDC_JWKS_URL: "https://issuer.example/jwks",
+      },
+      requireResearchPublicAccess: async () => undefined,
+      verifyToken: async () => ({ payload: { sub: "subject-1", sid: "session-1" } }),
+      findUserBySubject: async () => ({
+        id: "user-1",
+        organizationId: "org-a",
+        role: "TECHNICIAN",
+        active: true,
+        organization: { active: true },
+      }),
+    });
+    expect(actor).toEqual({ userId: "user-1", organizationId: "org-a", role: "TECHNICIAN", sessionId: "session-1" });
+  });
+
   it("does not assign TECHNICIAN when no database user exists", async () => {
     const request = new Request("http://localhost/api/samples", {
       headers: { authorization: "Bearer signed-token" },

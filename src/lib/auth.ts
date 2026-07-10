@@ -1,6 +1,7 @@
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import { AuthError } from "@/lib/api-auth-error";
 import { prisma } from "@/lib/prisma";
+import { requireResearchPublicAccess, ResearchPublicAccessError } from "@/lib/research-public-access";
 import type { UserRole } from "@/types/domain";
 
 export interface AuthenticatedActor {
@@ -25,6 +26,7 @@ interface VerifiedToken {
 interface AuthDependencies {
   env?: NodeJS.ProcessEnv;
   verifyToken?: (token: string, configuration: OidcConfiguration) => Promise<VerifiedToken>;
+  requireResearchPublicAccess?: (request: Request) => Promise<void>;
   findUserBySubject?: (subject: string) => Promise<AuthenticatedUserRecord | null>;
   findUserById?: (userId: string) => Promise<AuthenticatedUserRecord | null>;
 }
@@ -109,6 +111,14 @@ export async function requireAuthenticatedUser(
   dependencies: AuthDependencies = {},
 ): Promise<AuthenticatedActor> {
   const env = dependencies.env ?? process.env;
+  try {
+    await (dependencies.requireResearchPublicAccess ?? ((currentRequest: Request) =>
+      requireResearchPublicAccess(currentRequest, { env })))(request);
+  } catch (error) {
+    if (error instanceof ResearchPublicAccessError) unauthenticated();
+    throw error;
+  }
+
   const configuration = oidcConfiguration(env);
   if (env.NODE_ENV === "production" && !configuration) {
     unauthenticated("認証サービスが構成されていません。");

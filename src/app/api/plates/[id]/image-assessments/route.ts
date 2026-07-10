@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { authErrorResponse } from "@/lib/api-auth-error";
 import { requireAuthenticatedUser } from "@/lib/auth";
+import { isImageUploadServerEnabled } from "@/lib/feature-flags";
 import { analyzePlateImage } from "@/lib/image-analysis";
 import { normalizeImageAnalysisPredictions } from "@/lib/image-review";
 import { prisma } from "@/lib/prisma";
@@ -49,6 +50,10 @@ export async function POST(request: Request, { params }: RouteContext) {
     requirePermission(actor, "plate:write");
     const { id } = await params;
     await requirePlateAccess(actor, id);
+
+    if (!isImageUploadServerEnabled()) {
+      return jsonError("IMAGE_UPLOAD_DISABLED", "Image upload is disabled for this deployment.", 404);
+    }
 
     if (!request.headers.get("content-type")?.includes("multipart/form-data")) {
       return jsonError("INVALID_REQUEST", "画像ファイルをmultipart/form-dataで送信してください。", 400);

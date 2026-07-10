@@ -25,14 +25,14 @@ Implementation sequence:
 1. Create `feat/research-public-mvp` from a clean baseline after current v0.2.0 work is committed or intentionally separated.
 2. Keep research-local and research-public release tracks separate.
 3. Add a Netlify deployment profile and document the exact Next.js runtime assumptions.
-4. Require external PostgreSQL in internet-reachable runtime. Remove or block SQLite fallback for research-public preview.
+4. Require external PostgreSQL in internet-reachable runtime. SQLite fallback is fail-closed in research-public production.
 5. Use app-user `POSTGRES_APP_DATABASE_URL` at runtime only.
 6. Keep migration-user `POSTGRES_PRISMA_DATABASE_URL` in manual release procedure or protected CI only.
-7. Add server-side feature enforcement for image-disabled mode. Direct image upload/review APIs should return a controlled disabled response when Phase 1 image features are off.
+7. Add server-side feature enforcement for image-disabled mode. Direct image upload APIs return a controlled disabled response when Phase 1 image features are off.
 8. Hide or disable image upload UI in all entry points, including the plate editor.
 9. Configure Cloudflare Access for the canonical domain.
 10. Add origin-bypass controls for `*.netlify.app`, deploy previews, and branch deploys.
-11. Decide and implement app-side Cloudflare Access JWT verification or an equivalent origin verification backstop.
+11. App-side Cloudflare Access JWT verification is implemented as the Phase 1 origin verification backstop; staging must still validate real Cloudflare/Netlify behavior.
 12. Add serverless PostgreSQL pooling guidance and smoke tests.
 13. Add research-public CI checks: production env validation, image-disabled E2E, auth-boundary tests, and Netlify-compatible build.
 14. Run staging smoke tests with synthetic/anonymized data only.

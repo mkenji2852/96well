@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
   const actor = { userId: "tech-1", organizationId: "org-a", role: "TECHNICIAN" as const, sessionId: "session-1" };
@@ -70,6 +70,7 @@ const highConfidenceAnalysis = {
 
 describe("POST /api/plates/[id]/image-assessments", () => {
   beforeEach(() => {
+    vi.unstubAllEnvs();
     vi.clearAllMocks();
     mocks.actor.role = "TECHNICIAN";
     mocks.actor.organizationId = "org-a";
@@ -91,6 +92,10 @@ describe("POST /api/plates/[id]/image-assessments", () => {
       modelVersion: "server-opencv-v1",
     });
     mocks.analyzePlateImage.mockResolvedValue(highConfidenceAnalysis);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it("starts manual review even when service confidence is 1.0", async () => {
@@ -133,5 +138,20 @@ describe("POST /api/plates/[id]/image-assessments", () => {
     expect(mocks.auditCreate).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ action: "IMAGE_ANALYSIS_FAILED" }),
     }));
+  });
+
+  it("rejects upload when server-side image upload is disabled without calling analysis", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("RESEARCH_PUBLIC_MODE", "true");
+    vi.stubEnv("RESEARCH_PUBLIC_IMAGE_UPLOAD_ENABLED", "false");
+
+    const response = await POST(multipartRequest(), { params: Promise.resolve({ id: "plate-1" }) });
+    const body = await response.json();
+
+    expect(response.status).toBe(404);
+    expect(body.error.code).toBe("IMAGE_UPLOAD_DISABLED");
+    expect(mocks.analyzePlateImage).not.toHaveBeenCalled();
+    expect(mocks.imageAssessmentCreate).not.toHaveBeenCalled();
+    expect(mocks.imagePredictionCreate).not.toHaveBeenCalled();
   });
 });

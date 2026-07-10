@@ -30,9 +30,9 @@ Date: 2026-07-07
 
 ## Netlify-specific gaps
 
-1. No `netlify.toml` or Netlify deployment profile has been validated.
-2. Direct `*.netlify.app`, deploy preview, and branch deploy access paths are not yet designed.
-3. The current Basic-auth middleware should not be relied on as the only entry protection; middleware/environment behavior must be verified in the Netlify build/runtime model.
+1. `netlify.toml` now defines the build command, Node version, and fail-closed image flags for deploy-preview / branch-deploy contexts, but no Netlify deployment has been validated.
+2. Direct `*.netlify.app`, deploy preview, and branch deploy access paths must still be tested in staging.
+3. Middleware performs Cloudflare Access perimeter verification in research-public production, but important API routes also enforce the same perimeter through `requireAuthenticatedUser`.
 4. Prisma in serverless can exhaust PostgreSQL connections without pooling.
 5. Runtime image upload writes to `public/uploads`, which is not a safe persistent storage model on Netlify Functions.
 6. The Phase 1 image-disabled mode must be enforced server-side, not only in UI.
@@ -43,7 +43,7 @@ Date: 2026-07-07
 - Netlify Functions route smoke test.
 - External PostgreSQL connection smoke test using app-user only.
 - Cloudflare Access or equivalent identity-aware gate protecting the canonical domain.
-- Direct Netlify origin access test.
+- Direct Netlify origin access test with missing/invalid Cloudflare Access JWT.
 - Deploy preview / branch deploy visibility test.
 - Image-disabled E2E path.
 - Excel export size and timeout sanity test.
