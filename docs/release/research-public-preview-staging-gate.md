@@ -41,15 +41,16 @@ Confirmed from repository code and tests:
 - Allowed-host check is implemented as defense in depth.
 - Middleware applies the Access perimeter to page/API requests.
 - `requireAuthenticatedUser` also invokes the research-public perimeter, so direct API calls do not rely only on middleware.
-- Existing OIDC, DB-backed User, RBAC, and organization-scope checks remain required.
+- Existing OIDC path remains supported; browser users can be resolved by verified Cloudflare Access `sub` mapped to DB `User.externalSubject`.
+- DB-backed User, RBAC, and organization-scope checks remain required.
 - Image upload is server-side disabled by default in research-public production.
 - Disabled image upload returns before form parsing, FastAPI image analysis, or image prediction creation.
 - Research-public CI guardrail executes lint and dedicated research-public tests.
 
 ## Remaining blockers before sharing a preview link
 
-1. Existing application authentication UX must be proven in browser staging. Cloudflare Access alone is not app RBAC identity.
-2. Initial staging DB users and `User.externalSubject` mapping must be bootstrapped.
+1. Initial staging DB users and `User.externalSubject` mapping must be bootstrapped from verified Cloudflare Access `sub` values.
+2. Browser staging must prove `/api/me` works for known Access subjects and rejects unknown subjects.
 3. External PostgreSQL provider, region, pooling mode, backup, and deletion procedure must be selected.
 4. Runtime and migration credentials must be separated and verified.
 5. Netlify direct URL, deploy-preview, and branch-deploy exposure must be tested against real deployment behavior.
@@ -59,7 +60,7 @@ Confirmed from repository code and tests:
 ## Gate decision
 
 - Phase 1 code readiness: **GO** based on CI success and implemented guardrails.
-- Staging environment creation: **CONDITIONAL GO** after provider, auth UX, and credential-separation decisions are recorded.
+- Staging environment creation: **CONDITIONAL GO** after provider, user bootstrap, and credential-separation decisions are recorded.
 - Staging deployment: **CONDITIONAL GO** only after environment creation prerequisites are satisfied.
 - Netlify limited external preview sharing: **NO-GO** until smoke test evidence is complete.
 - Anonymous public use: **NO-GO**.

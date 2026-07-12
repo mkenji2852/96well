@@ -11,7 +11,7 @@ Purpose: verify a real staging deployment before sharing access with limited res
 - Runtime uses application DB credential only.
 - Cloudflare Access configured on the custom staging hostname.
 - App-side Cloudflare Access JWT verification configured.
-- Existing application authentication / OIDC / DB user mapping configured.
+- Existing application authentication and DB user mapping configured.
 - Image upload and analysis disabled.
 - Backup/cleanup plan ready.
 
@@ -30,9 +30,9 @@ Purpose: verify a real staging deployment before sharing access with limited res
    - Expected: app shell loads.
 
 4. Existing application authentication
-   - Confirm `/api/me` resolves the authenticated DB `User`.
+   - Confirm `/api/me` resolves the authenticated DB `User` from the verified Cloudflare Access `sub`.
    - Expected: role and organization are DB-backed, not token-claim-backed.
-   - If the browser cannot provide the required OIDC Bearer token, stop: this is an auth UX blocker.
+   - Confirm an unknown Access `sub` fails closed.
 
 5. Direct Netlify origin behavior
    - Try the Netlify direct deploy URL, deploy preview URL, and branch deploy URL if present.
@@ -93,4 +93,3 @@ Purpose: verify a real staging deployment before sharing access with limited res
 - CONDITIONAL GO only for internal staging iteration with documented blockers and no external preview sharing.
 - NO-GO for anonymous public use.
 - NO-GO for clinical, diagnostic, regulated, or controlled production use.
-

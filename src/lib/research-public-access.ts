@@ -111,15 +111,15 @@ export async function verifyCloudflareAccessToken(
 export async function requireResearchPublicAccess(
   request: Request,
   dependencies: ResearchPublicAccessDependencies = {},
-): Promise<void> {
+): Promise<JWTPayload | null> {
   const env = dependencies.env ?? process.env;
   const configuration = researchPublicAccessConfiguration(env);
-  if (!configuration) return;
+  if (!configuration) return null;
 
   assertAllowedHost(request, configuration);
   const token = request.headers.get("cf-access-jwt-assertion");
   if (!token) {
     throw new ResearchPublicAccessError("ACCESS_JWT_MISSING", "Cloudflare Access token is required.");
   }
-  await (dependencies.verifyToken ?? verifyCloudflareAccessToken)(token, configuration);
+  return (dependencies.verifyToken ?? verifyCloudflareAccessToken)(token, configuration);
 }

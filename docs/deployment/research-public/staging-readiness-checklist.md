@@ -76,9 +76,10 @@ Authorized research user
 - [ ] Cloudflare Access application AUD to be recorded in secret manager.
 - [ ] Team domain/issuer to be recorded in runtime config.
 - [ ] Existing application authentication UX is resolved.
-- [ ] Database `User.externalSubject` mapping plan exists for each staging user.
-- [ ] Decision recorded: Cloudflare Access alone is not treated as app RBAC identity.
-- [ ] If the browser UI needs an OIDC token, the login/token acquisition flow is confirmed before sharing preview access.
+- [ ] Database `User.externalSubject` mapping plan exists for each staging user using the verified Cloudflare Access JWT `sub`.
+- [ ] Decision recorded: Cloudflare Access verifies the perimeter and subject, but role and organization are still resolved from DB User.
+- [ ] Unknown Access subjects fail closed.
+- [ ] No automatic user provisioning, first-user ADMIN, or request-header role/organization mapping is enabled.
 
 ## Environment-variable gate
 

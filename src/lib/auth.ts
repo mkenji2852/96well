@@ -1,7 +1,11 @@
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import { AuthError } from "@/lib/api-auth-error";
 import { prisma } from "@/lib/prisma";
-import { requireResearchPublicAccess, ResearchPublicAccessError } from "@/lib/research-public-access";
+import {
+  isResearchPublicProduction,
+  requireResearchPublicAccess,
+  ResearchPublicAccessError,
+} from "@/lib/research-public-access";
 import type { UserRole } from "@/types/domain";
 
 export interface AuthenticatedActor {
@@ -26,7 +30,7 @@ interface VerifiedToken {
 interface AuthDependencies {
   env?: NodeJS.ProcessEnv;
   verifyToken?: (token: string, configuration: OidcConfiguration) => Promise<VerifiedToken>;
-  requireResearchPublicAccess?: (request: Request) => Promise<void>;
+  requireResearchPublicAccess?: (request: Request) => Promise<JWTPayload | null | void>;
   findUserBySubject?: (subject: string) => Promise<AuthenticatedUserRecord | null>;
   findUserById?: (userId: string) => Promise<AuthenticatedUserRecord | null>;
 }
@@ -106,13 +110,20 @@ function actorFromUser(user: AuthenticatedUserRecord | null, sessionId: string):
   };
 }
 
+function sessionIdFromAccessPayload(payload: JWTPayload, subject: string): string {
+  if (typeof payload.sid === "string") return payload.sid;
+  if (typeof payload.jti === "string") return payload.jti;
+  return `cloudflare-access:${subject}`;
+}
+
 export async function requireAuthenticatedUser(
   request: Request,
   dependencies: AuthDependencies = {},
 ): Promise<AuthenticatedActor> {
   const env = dependencies.env ?? process.env;
+  let accessPayload: JWTPayload | null | void = null;
   try {
-    await (dependencies.requireResearchPublicAccess ?? ((currentRequest: Request) =>
+    accessPayload = await (dependencies.requireResearchPublicAccess ?? ((currentRequest: Request) =>
       requireResearchPublicAccess(currentRequest, { env })))(request);
   } catch (error) {
     if (error instanceof ResearchPublicAccessError) unauthenticated();
@@ -120,14 +131,10 @@ export async function requireAuthenticatedUser(
   }
 
   const configuration = oidcConfiguration(env);
-  if (env.NODE_ENV === "production" && !configuration) {
-    unauthenticated("認証サービスが構成されていません。");
-  }
-
   const authorization = request.headers.get("authorization");
   if (authorization) {
     const match = /^Bearer\s+(.+)$/i.exec(authorization);
-    if (!match || !configuration) unauthenticated();
+    if (!match || !configuration) unauthenticated("認証サービスが構成されていません。");
     try {
       const verified = await (dependencies.verifyToken ?? verifyOidcToken)(match[1], configuration);
       const subject = verified.payload.sub;
@@ -143,6 +150,17 @@ export async function requireAuthenticatedUser(
     }
   }
 
+  if (isResearchPublicProduction(env) && accessPayload) {
+    const subject = accessPayload.sub;
+    if (!subject) unauthenticated();
+    const user = await (dependencies.findUserBySubject ?? findUserBySubject)(subject);
+    return actorFromUser(user, sessionIdFromAccessPayload(accessPayload, subject));
+  }
+
+  if (env.NODE_ENV === "production" && !configuration) {
+    unauthenticated("認証サービスが構成されていません。");
+  }
+
   const devEnabled = env.DEV_AUTH_ENABLED === "true";
   if (devEnabled) {
     if (env.NODE_ENV !== "development") unauthenticated("開発用認証は利用できません。");
@@ -154,4 +172,3 @@ export async function requireAuthenticatedUser(
 
   unauthenticated();
 }
-

@@ -11,9 +11,9 @@ Do not place real values in repository files. All staging secrets must be stored
 | `POSTGRES_APP_DATABASE_URL` | Yes | Yes | Server | Yes | No | secret-manager value only | Required in production runtime. Must be PostgreSQL. Missing or SQLite fails closed. Prefer pooled/serverless-safe app-user URL. |
 | `POSTGRES_PRISMA_DATABASE_URL` | Yes for migration, forbidden at runtime | Yes | Server | No | Yes | secret-manager value only | Used only for controlled migration/hardening. Must not be configured in Netlify runtime. Runtime does not fall back to it. |
 | `DATABASE_URL` | No for staging | Usually yes if remote | Server | No | No | not configured | SQLite/file values are forbidden in production runtime. Local SQLite is development-only. |
-| `OIDC_ISSUER` | Yes if existing app auth uses OIDC | No/metadata | Server | Yes | No | issuer placeholder | Existing app authentication requires valid OIDC config in production. Missing config causes authenticated API calls to fail closed. |
-| `OIDC_AUDIENCE` | Yes if OIDC used | No/metadata | Server | Yes | No | audience placeholder | Used for OIDC Bearer token audience verification. |
-| `OIDC_JWKS_URL` | Yes if OIDC used | No/metadata | Server | Yes | No | JWKS placeholder | Used for OIDC JWT signature verification. |
+| `OIDC_ISSUER` | Optional for Access-browser flow; required if OIDC Bearer auth is used | No/metadata | Server | If OIDC clients are used | No | issuer placeholder | Existing OIDC Bearer path requires valid config when an Authorization header is sent. Access-browser flow can map verified Access `sub` to `User.externalSubject`. |
+| `OIDC_AUDIENCE` | Optional for Access-browser flow; required if OIDC Bearer auth is used | No/metadata | Server | If OIDC clients are used | No | audience placeholder | Used for OIDC Bearer token audience verification. |
+| `OIDC_JWKS_URL` | Optional for Access-browser flow; required if OIDC Bearer auth is used | No/metadata | Server | If OIDC clients are used | No | JWKS placeholder | Used for OIDC JWT signature verification. |
 | `CLOUDFLARE_ACCESS_TEAM_DOMAIN` | Yes | No/metadata | Server | Yes | No | team-domain placeholder | Required in research-public production. Builds issuer and default JWKS URL. Missing/invalid config fails closed. |
 | `CLOUDFLARE_ACCESS_AUD` | Yes | No/metadata | Server | Yes | No | Access AUD placeholder | Required for Access JWT audience verification. Missing config fails closed. |
 | `CLOUDFLARE_ACCESS_JWKS_URL` | Optional | No/metadata | Server | Optional | No | JWKS override placeholder | Optional override. If omitted, derived from team domain. Invalid URL fails closed. |
@@ -33,7 +33,7 @@ Do not place real values in repository files. All staging secrets must be stored
 - `NODE_ENV=production`
 - `RESEARCH_PUBLIC_MODE=true`
 - `POSTGRES_APP_DATABASE_URL`
-- OIDC configuration required by existing app authentication
+- OIDC configuration if API clients use existing OIDC Bearer authentication
 - Cloudflare Access verification variables
 - `RESEARCH_PUBLIC_ALLOWED_HOSTS`
 - `NEXT_PUBLIC_IMAGE_REVIEW_ENABLED=false`

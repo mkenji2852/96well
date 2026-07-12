@@ -98,6 +98,55 @@ describe("requireAuthenticatedUser", () => {
     expect(actor).toEqual({ userId: "user-1", organizationId: "org-a", role: "TECHNICIAN", sessionId: "session-1" });
   });
 
+  it("maps a verified Cloudflare Access subject to the database user without an OIDC bearer token", async () => {
+    const request = new Request("https://research.example.test/api/me", {
+      headers: { "cf-access-jwt-assertion": "verified-access-token" },
+    });
+    const actor = await requireAuthenticatedUser(request, {
+      env: {
+        NODE_ENV: "production",
+        RESEARCH_PUBLIC_MODE: "true",
+        CLOUDFLARE_ACCESS_TEAM_DOMAIN: "research-team.cloudflareaccess.com",
+        CLOUDFLARE_ACCESS_AUD: "access-aud",
+        RESEARCH_PUBLIC_ALLOWED_HOSTS: "research.example.test",
+      },
+      requireResearchPublicAccess: async () => ({
+        sub: "cloudflare-subject-1",
+        jti: "access-session-1",
+        role: "ADMIN",
+        organizationId: "attacker-org",
+      }),
+      findUserBySubject: async (subject) => {
+        expect(subject).toBe("cloudflare-subject-1");
+        return {
+          id: "user-1",
+          organizationId: "org-a",
+          role: "REVIEWER",
+          active: true,
+          organization: { active: true },
+        };
+      },
+    });
+    expect(actor).toEqual({ userId: "user-1", organizationId: "org-a", role: "REVIEWER", sessionId: "access-session-1" });
+  });
+
+  it("fails closed for an unknown Cloudflare Access subject", async () => {
+    const request = new Request("https://research.example.test/api/me", {
+      headers: { "cf-access-jwt-assertion": "verified-access-token" },
+    });
+    await expect(requireAuthenticatedUser(request, {
+      env: {
+        NODE_ENV: "production",
+        RESEARCH_PUBLIC_MODE: "true",
+        CLOUDFLARE_ACCESS_TEAM_DOMAIN: "research-team.cloudflareaccess.com",
+        CLOUDFLARE_ACCESS_AUD: "access-aud",
+        RESEARCH_PUBLIC_ALLOWED_HOSTS: "research.example.test",
+      },
+      requireResearchPublicAccess: async () => ({ sub: "unknown-access-subject" }),
+      findUserBySubject: async () => null,
+    })).rejects.toMatchObject({ code: "UNAUTHENTICATED" });
+  });
+
   it("does not assign TECHNICIAN when no database user exists", async () => {
     const request = new Request("http://localhost/api/samples", {
       headers: { authorization: "Bearer signed-token" },

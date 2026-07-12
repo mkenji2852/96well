@@ -47,7 +47,7 @@ Do not record secrets, real database URLs, tokens, patient identifiers, clinical
 - `RESEARCH_PUBLIC_MODE=true`:
 - `POSTGRES_APP_DATABASE_URL` configured as runtime app user:
 - `POSTGRES_PRISMA_DATABASE_URL` excluded from runtime:
-- OIDC issuer/audience/JWKS planned:
+- OIDC issuer/audience/JWKS planned if OIDC Bearer clients are used:
 - Cloudflare Access team domain/AUD/JWKS planned:
 - `RESEARCH_PUBLIC_ALLOWED_HOSTS` planned:
 - Image flags disabled:
@@ -55,7 +55,9 @@ Do not record secrets, real database URLs, tokens, patient identifiers, clinical
 ## Auth UX review
 
 - Cloudflare Access user can reach app shell:
-- Existing OIDC/app authentication path confirmed:
+- Cloudflare Access `sub` to DB `User.externalSubject` mapping confirmed:
+- Unknown Access subject fails closed:
+- Existing OIDC/app authentication path confirmed if used:
 - DB `User.externalSubject` mapping plan:
 - Role/organization from DB confirmed:
 - Remaining UX blocker:
@@ -73,4 +75,3 @@ Do not record secrets, real database URLs, tokens, patient identifiers, clinical
 - Security reviewer:
 - Data owner:
 - Timestamp:
-

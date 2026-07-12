@@ -12,7 +12,7 @@ The app includes:
 
 - 96-well plate input and local research workflow.
 - Prisma-backed sample, plate, well, breakpoint, MIC/SIR, image-review, audit, idempotency, and export records.
-- OIDC Bearer-token API authentication with DB-backed user role and organization resolution.
+- OIDC Bearer-token API authentication and research-public Cloudflare Access subject mapping, both with DB-backed user role and organization resolution.
 - Development/local auth. During the audit, the working tree also contained an uncommitted research-public Basic Auth prototype; that prototype is not part of the approved Phase 1 architecture and must not be treated as an implemented security boundary.
 - Excel export generated in memory through ExcelJS.
 - Image upload/review routes that call a separate FastAPI/OpenCV service through `IMAGE_ANALYSIS_URL` when enabled. In Phase 1 research-public production, image upload is disabled server-side before form parsing or analysis.
@@ -57,6 +57,7 @@ Phase 1 implementation note:
 - The Access JWT is cryptographically verified against the configured Cloudflare Access issuer and audience.
 - `RESEARCH_PUBLIC_ALLOWED_HOSTS` is checked as defense in depth for direct Netlify origin / deploy-preview bypass risk.
 - Existing application authentication remains required after the Access perimeter. Cloudflare Access verification is not a replacement for `requireAuthenticatedUser`, RBAC, or organization scope.
+- For browser users without an OIDC Bearer token, the verified Cloudflare Access `sub` is mapped to `User.externalSubject`; role and organization still come only from the database.
 - Image upload and image review are disabled by default in research-public production.
 
 ## Required design decisions before implementation

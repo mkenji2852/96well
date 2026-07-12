@@ -28,6 +28,8 @@ Do not record secrets, real database URLs, Access JWTs, OIDC tokens, patient ide
 ## Application authentication
 
 - `/api/me` resolves authenticated DB user:
+- `/api/me` works from verified Cloudflare Access subject without trusting request headers:
+- Unknown Access subject rejected:
 - Role from DB:
 - Organization from DB:
 - Other-organization object returns `404`:
@@ -71,4 +73,3 @@ Do not record secrets, real database URLs, Access JWTs, OIDC tokens, patient ide
 - Blocking findings:
 - Follow-up owner:
 - Timestamp:
-

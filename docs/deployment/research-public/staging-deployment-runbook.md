@@ -90,11 +90,11 @@ Required bootstrap:
 
 1. Create/verify a staging `Organization`.
 2. Create/verify DB `User` records for allowed research users.
-3. Map each user through `User.externalSubject` to the OIDC `sub`.
+3. Map each user through `User.externalSubject` to the verified Cloudflare Access JWT `sub` used for browser access.
 4. Assign least-privilege roles appropriate for research preview.
 5. Confirm role and organization come from DB values, not token claims.
 
-Open UX question: if the browser UI does not obtain an OIDC Bearer token, Cloudflare Access alone will not satisfy `requireAuthenticatedUser`. Resolve this before preview access is shared.
+OIDC Bearer authentication remains supported for API clients that send an Authorization header, but browser staging can use the verified Cloudflare Access subject mapping. Unknown Access subjects must fail closed; do not auto-provision users and do not auto-assign ADMIN.
 
 ## Step 4: configure Cloudflare Access
 
@@ -121,7 +121,7 @@ Required runtime:
 - `NODE_ENV=production`
 - `RESEARCH_PUBLIC_MODE=true`
 - `POSTGRES_APP_DATABASE_URL`
-- OIDC variables needed by existing app auth
+- OIDC variables if API clients will use existing OIDC Bearer auth
 - Cloudflare Access variables
 - `NEXT_PUBLIC_IMAGE_REVIEW_ENABLED=false`
 - `RESEARCH_PUBLIC_IMAGE_REVIEW_ENABLED=false`
@@ -153,7 +153,7 @@ Stop validation immediately if:
 - API direct access succeeds without Access JWT;
 - runtime uses SQLite;
 - image upload succeeds in Phase 1;
-- OIDC/RBAC/organization-scope checks fail;
+- Access subject mapping, OIDC/RBAC, or organization-scope checks fail;
 - Excel export leaks identifiers beyond allowed synthetic/anonymized Sample-ID.
 
 ## Evidence to retain
