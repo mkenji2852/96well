@@ -16,6 +16,7 @@ This directory contains operational documents for controlled production deployme
 - [Environment Variables](./environment-variables.md)
 - [Production Evidence Template](./production-evidence-template.md)
 - [Production Environment Template](../../.env.production.example)
+- [Research Public Preview Docs](./research-public/README.md)
 
 ## How to use these documents
 
@@ -37,3 +38,4 @@ For research-only local non-clinical use, follow the [Research Local Runbook](./
 - [2026-06-30 Release Readiness](../release/2026-06-30-release-readiness.md)
 - [2026-07-01 Research Local Release](../release/2026-07-01-research-local-release.md)
 - [2026-07-02 Research Local v0.2.0 Release Candidate](../release/2026-07-02-research-local-v0.2.0-release.md)
+- [Research Public Preview Staging Gate](../release/research-public-preview-staging-gate.md)

@@ -2,11 +2,14 @@ import { PrismaClient } from "@prisma/client";
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
-function resolveRuntimeDatabaseUrl(): string | undefined {
-  const appUrl = process.env.POSTGRES_APP_DATABASE_URL;
-  const legacyUrl = process.env.DATABASE_URL;
-  const isNextProductionBuild = process.env.NEXT_PHASE === "phase-production-build";
-  if (process.env.NODE_ENV === "production") {
+import { isResearchPublicProduction } from "@/lib/research-public-access";
+
+export function resolveRuntimeDatabaseUrl(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const appUrl = env.POSTGRES_APP_DATABASE_URL;
+  const migrationUrl = env.POSTGRES_PRISMA_DATABASE_URL;
+  const legacyUrl = env.DATABASE_URL;
+  const isNextProductionBuild = env.NEXT_PHASE === "phase-production-build";
+  if (env.NODE_ENV === "production") {
     if (isNextProductionBuild) {
       return undefined;
     }
@@ -18,6 +21,9 @@ function resolveRuntimeDatabaseUrl(): string | undefined {
     }
     if (legacyUrl?.startsWith("file:") || legacyUrl?.startsWith("sqlite:")) {
       throw new Error("Production must not use the SQLite DATABASE_URL.");
+    }
+    if (isResearchPublicProduction(env) && migrationUrl && appUrl === migrationUrl) {
+      throw new Error("Research public runtime must not use the migration database credential.");
     }
     return appUrl;
   }
