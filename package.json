@@ -9,7 +9,7 @@
     "build:postgres": "prisma generate --schema prisma/postgresql/schema.prisma && next build",
     "start": "next start",
     "test": "vitest run --configLoader runner",
-    "test:research-public": "vitest run --configLoader runner src/lib/research-public-access.test.ts src/lib/prisma.test.ts src/lib/postgres-runtime-check.test.ts src/lib/feature-flags.test.ts src/lib/auth.test.ts src/app/api/plates/[id]/image-assessments/route.test.ts",
+    "test:research-public": "vitest run --configLoader runner src/lib/research-public-access.test.ts src/middleware.test.ts src/lib/prisma.test.ts src/lib/postgres-runtime-check.test.ts src/lib/feature-flags.test.ts src/lib/auth.test.ts src/app/api/plates/[id]/image-assessments/route.test.ts",
     "test:watch": "vitest --configLoader runner",
     "test:e2e": "playwright test",
     "test:postgres": "vitest run --configLoader runner src/lib/postgres.integration.test.ts",

@@ -1,6 +1,7 @@
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { describe, expect, it } from "vitest";
 import {
+  assertResearchPublicAllowedHost,
   requireResearchPublicAccess,
   researchPublicAccessConfiguration,
   ResearchPublicAccessError,
@@ -97,5 +98,34 @@ describe("research public Cloudflare Access boundary", () => {
       env: baseEnv,
       verifyToken: async () => ({ sub: "access-user" }),
     })).rejects.toMatchObject({ code: "ACCESS_HOST_FORBIDDEN" });
+  });
+
+  it("allows the configured staging custom domain at the host boundary", () => {
+    const configuration = researchPublicAccessConfiguration({
+      ...baseEnv,
+      RESEARCH_PUBLIC_ALLOWED_HOSTS: "96well-testing.micplate-testing.com",
+    } as NodeJS.ProcessEnv)!;
+
+    expect(() => assertResearchPublicAllowedHost(
+      request(undefined, "96well-testing.micplate-testing.com"),
+      configuration,
+    )).not.toThrow();
+  });
+
+  it("does not trust x-forwarded-host to bypass the actual request host", () => {
+    const configuration = researchPublicAccessConfiguration({
+      ...baseEnv,
+      RESEARCH_PUBLIC_ALLOWED_HOSTS: "96well-testing.micplate-testing.com",
+    } as NodeJS.ProcessEnv)!;
+
+    expect(() => assertResearchPublicAllowedHost(
+      new Request("https://site.netlify.app/api/me", {
+        headers: {
+          host: "site.netlify.app",
+          "x-forwarded-host": "96well-testing.micplate-testing.com",
+        },
+      }),
+      configuration,
+    )).toThrow(ResearchPublicAccessError);
   });
 });

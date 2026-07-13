@@ -38,6 +38,16 @@ function splitList(value: string | undefined): string[] {
     .filter(Boolean);
 }
 
+function normalizeHost(value: string): string {
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed) return "";
+  if (trimmed.startsWith("[")) {
+    const end = trimmed.indexOf("]");
+    return end >= 0 ? trimmed.slice(1, end) : trimmed;
+  }
+  return trimmed.split(":")[0] ?? "";
+}
+
 function normalizeTeamDomain(value: string): string {
   const raw = value.trim().replace(/\/+$/, "");
   if (!raw) return "";
@@ -55,7 +65,7 @@ export function researchPublicAccessConfiguration(
   if (!isResearchPublicProduction(env)) return null;
   const teamDomain = env.CLOUDFLARE_ACCESS_TEAM_DOMAIN?.trim();
   const audience = splitList(env.CLOUDFLARE_ACCESS_AUD);
-  const allowedHosts = splitList(env.RESEARCH_PUBLIC_ALLOWED_HOSTS).map((host) => host.toLowerCase());
+  const allowedHosts = splitList(env.RESEARCH_PUBLIC_ALLOWED_HOSTS).map(normalizeHost).filter(Boolean);
   if (!teamDomain || audience.length === 0 || allowedHosts.length === 0) {
     throw new ResearchPublicAccessError("ACCESS_CONFIG_MISSING", "Research public access is not configured.");
   }
@@ -71,13 +81,22 @@ export function researchPublicAccessConfiguration(
   return { issuer, audience, jwksUrl, allowedHosts };
 }
 
-function requestHost(request: Request): string {
-  return new URL(request.url).hostname.toLowerCase();
+function requestHosts(request: Request): string[] {
+  const hosts = new Set<string>();
+  hosts.add(normalizeHost(new URL(request.url).hostname));
+
+  const hostHeader = request.headers.get("host");
+  if (hostHeader) hosts.add(normalizeHost(hostHeader));
+
+  return Array.from(hosts).filter(Boolean);
 }
 
-function assertAllowedHost(request: Request, configuration: ResearchPublicAccessConfiguration): void {
-  const host = requestHost(request);
-  if (!configuration.allowedHosts.includes(host)) {
+export function assertResearchPublicAllowedHost(
+  request: Request,
+  configuration: ResearchPublicAccessConfiguration,
+): void {
+  const hosts = requestHosts(request);
+  if (hosts.length === 0 || hosts.some((host) => !configuration.allowedHosts.includes(host))) {
     throw new ResearchPublicAccessError("ACCESS_HOST_FORBIDDEN", "This host is not allowed for research public access.");
   }
 }
@@ -116,7 +135,7 @@ export async function requireResearchPublicAccess(
   const configuration = researchPublicAccessConfiguration(env);
   if (!configuration) return null;
 
-  assertAllowedHost(request, configuration);
+  assertResearchPublicAllowedHost(request, configuration);
   const token = request.headers.get("cf-access-jwt-assertion");
   if (!token) {
     throw new ResearchPublicAccessError("ACCESS_JWT_MISSING", "Cloudflare Access token is required.");

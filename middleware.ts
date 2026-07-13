@@ -1,5 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { isResearchPublicProduction, requireResearchPublicAccess } from "@/lib/research-public-access";
+import {
+  isResearchPublicProduction,
+  requireResearchPublicAccess,
+  ResearchPublicAccessError,
+} from "@/lib/research-public-access";
 
 export async function middleware(request: NextRequest) {
   if (!isResearchPublicProduction()) return NextResponse.next();
@@ -9,11 +13,16 @@ export async function middleware(request: NextRequest) {
     const response = NextResponse.next();
     response.headers.set("cache-control", "private, no-store");
     return response;
-  } catch {
+  } catch (error) {
+    const status = error instanceof ResearchPublicAccessError
+      && (error.code === "ACCESS_CONFIG_MISSING" || error.code === "ACCESS_HOST_FORBIDDEN")
+      ? 403
+      : 401;
+    const code = status === 403 ? "FORBIDDEN" : "UNAUTHENTICATED";
     return NextResponse.json(
-      { error: { code: "UNAUTHENTICATED", message: "Access is restricted to authorized research users." } },
+      { error: { code, message: "Access is restricted to authorized research users." } },
       {
-        status: 401,
+        status,
         headers: { "cache-control": "private, no-store" },
       },
     );
@@ -21,5 +30,11 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|sw.js).*)"],
+  matcher: [
+    "/",
+    "/breakpoints",
+    "/review/image",
+    "/api/:path*",
+    "/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|sw.js).*)",
+  ],
 };
