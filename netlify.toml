@@ -4,6 +4,10 @@ command = "pnpm build:postgres"
 [build.environment]
 NODE_VERSION = "22"
 
+[[edge_functions]]
+path = "/*"
+function = "research-public-host-guard"
+
 [context.deploy-preview.environment]
 RESEARCH_PUBLIC_MODE = "true"
 NEXT_PUBLIC_IMAGE_REVIEW_ENABLED = "false"
