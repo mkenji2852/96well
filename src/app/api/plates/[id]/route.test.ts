@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 
 const mocks = vi.hoisted(() => {
@@ -102,6 +102,11 @@ describe("PUT /api/plates/[id] offline sync safety", () => {
     mocks.recalculatePlateResults.mockResolvedValue([]);
   });
 
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
   it("requires an explicit base revision", async () => {
     const response = await PUT(request(payload({ expectedRevision: undefined, idempotencyKey: undefined })), routeContext);
 
@@ -182,5 +187,90 @@ describe("PUT /api/plates/[id] offline sync safety", () => {
     expect(response.status).toBe(409);
     expect(body.error.code).toBe("IDEMPOTENCY_KEY_REUSED");
     expect(mocks.transaction).not.toHaveBeenCalled();
+  });
+
+  it("does not include debug details when research-public debug errors are disabled", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("RESEARCH_PUBLIC_MODE", "true");
+    vi.stubEnv("RESEARCH_PUBLIC_DEBUG_ERRORS", "false");
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    mocks.transaction.mockRejectedValueOnce(new Error("staging save failed"));
+
+    const response = await PUT(request(payload({
+      breakpointSetId: undefined,
+      idempotencyKey: "secret-idem-key-123",
+      expectedRevision: 0,
+      wells: [],
+    })), routeContext);
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(body).toEqual({ error: { code: "INTERNAL_ERROR", message: "処理に失敗しました。" } });
+  });
+
+  it("returns only secret-safe debug details when explicitly enabled for research-public staging", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("RESEARCH_PUBLIC_MODE", "true");
+    vi.stubEnv("RESEARCH_PUBLIC_DEBUG_ERRORS", "true");
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const error = Object.assign(
+      new Error(
+        "save failed for secret-idem-key-123 using postgresql://user:password@example.test/db Authorization: Bearer abc.def Cookie: sid=secret",
+      ),
+      {
+        code: "P2028",
+        meta: {
+          modelName: "Plate",
+          table: "Plate",
+          target: ["id"],
+          databaseUrl: "postgresql://should-not-appear",
+        },
+      },
+    );
+    mocks.transaction.mockRejectedValueOnce(error);
+
+    const response = await PUT(request(payload({
+      breakpointSetId: undefined,
+      idempotencyKey: "secret-idem-key-123",
+      expectedRevision: 0,
+      wells: [],
+    }), {
+      authorization: "Bearer request-token",
+      cookie: "session=request-cookie",
+    }), routeContext);
+    const body = await response.json();
+    const serialized = JSON.stringify(body);
+    const consoleOutput = consoleError.mock.calls.map((call) => String(call[0])).join("\n");
+
+    expect(response.status).toBe(500);
+    expect(body.error.code).toBe("INTERNAL_ERROR");
+    expect(body.error.debug).toMatchObject({
+      route: "PUT /api/plates/[id]",
+      error: {
+        name: "Error",
+        code: "P2028",
+        prismaMeta: { modelName: "Plate", table: "Plate", target: ["id"] },
+      },
+      context: {
+        actorUserIdPresent: true,
+        plateId: "plate-1",
+        idempotencyKeyPresent: true,
+        expectedRevision: 0,
+        wellsCount: 0,
+        breakpointSetIdPresent: false,
+      },
+    });
+    expect(body.error.debug.requestDebugId).toEqual(expect.any(String));
+    expect(serialized).not.toContain("secret-idem-key-123");
+    expect(serialized).not.toContain("postgresql://");
+    expect(serialized).not.toContain("abc.def");
+    expect(serialized).not.toContain("request-token");
+    expect(serialized).not.toContain("request-cookie");
+    expect(serialized).not.toContain("databaseUrl");
+    expect(consoleOutput).not.toContain("secret-idem-key-123");
+    expect(consoleOutput).not.toContain("postgresql://");
+    expect(consoleOutput).not.toContain("abc.def");
+    expect(consoleOutput).not.toContain("request-token");
+    expect(consoleOutput).not.toContain("request-cookie");
   });
 });

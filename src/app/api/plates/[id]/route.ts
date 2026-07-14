@@ -5,6 +5,7 @@ import { authErrorResponse } from "@/lib/api-auth-error";
 import { requireAuthenticatedUser, type AuthenticatedActor } from "@/lib/auth";
 import { recalculatePlateResults, ResultCalculationError } from "@/lib/plate-results";
 import { prisma } from "@/lib/prisma";
+import { isResearchPublicProduction } from "@/lib/research-public-access";
 import { requirePermission, requirePlateAccess } from "@/lib/rbac";
 import { savePlateSchema } from "@/lib/validation";
 import type { RawMicOperator } from "@/types/domain";
@@ -20,6 +21,140 @@ type SavePlateResponse = {
 
 function jsonError(code: string, message: string, status: number): NextResponse {
   return NextResponse.json({ error: { code, message } }, { status });
+}
+
+function redactDiagnosticMessage(value: string, extraSecrets: Array<string | null | undefined> = []): string {
+  let redacted = value
+    .replace(/postgres(?:ql)?:\/\/[^\s"'<>]+/gi, "[REDACTED_DATABASE_URL]")
+    .replace(/bearer\s+[a-z0-9._~+/-]+=*/gi, "Bearer [REDACTED_TOKEN]")
+    .replace(/authorization:\s*[^\n\r]+/gi, "authorization: [REDACTED]")
+    .replace(/cookie:\s*[^\n\r]+/gi, "cookie: [REDACTED]");
+  for (const secret of extraSecrets) {
+    if (secret && secret.length >= 8) {
+      redacted = redacted.split(secret).join("[REDACTED_VALUE]");
+    }
+  }
+  return redacted;
+}
+
+function safeErrorCode(error: unknown): string | undefined {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === "string" ? code : undefined;
+}
+
+function safePrismaMeta(error: unknown): Record<string, unknown> | undefined {
+  const meta = (error as { meta?: unknown } | null)?.meta;
+  if (!meta || typeof meta !== "object") return undefined;
+  const source = meta as Record<string, unknown>;
+  const allowedKeys = ["table", "target", "modelName", "field_name", "constraint", "column"];
+  const safe: Record<string, unknown> = {};
+  for (const key of allowedKeys) {
+    const value = source[key];
+    if (typeof value === "string" || Array.isArray(value)) {
+      safe[key] = value;
+    }
+  }
+  return Object.keys(safe).length > 0 ? safe : undefined;
+}
+
+function errorName(error: unknown): string {
+  return error instanceof Error ? error.name : typeof error;
+}
+
+function errorMessage(error: unknown, extraSecrets: Array<string | null | undefined> = []): string {
+  if (error instanceof Error) return redactDiagnosticMessage(error.message, extraSecrets);
+  if (typeof error === "string") return redactDiagnosticMessage(error, extraSecrets);
+  return "Unknown error";
+}
+
+function shouldReturnResearchPublicDebug(env: NodeJS.ProcessEnv = process.env): boolean {
+  return isResearchPublicProduction(env) && env.RESEARCH_PUBLIC_DEBUG_ERRORS === "true";
+}
+
+function plateSaveDebugPayload({
+  requestDebugId,
+  error,
+  actor,
+  plateId,
+  idempotencyKey,
+  expectedRevision,
+  wellsCount,
+  breakpointSetIdPresent,
+}: {
+  requestDebugId: string;
+  error: unknown;
+  actor: AuthenticatedActor | null;
+  plateId: string | null;
+  idempotencyKey: string | null;
+  expectedRevision: number | null;
+  wellsCount: number | null;
+  breakpointSetIdPresent: boolean | null;
+}) {
+  return {
+    requestDebugId,
+    route: "PUT /api/plates/[id]",
+    error: {
+      name: errorName(error),
+      code: safeErrorCode(error),
+      message: errorMessage(error, [idempotencyKey]),
+      prismaMeta: safePrismaMeta(error),
+    },
+    context: {
+      actorUserIdPresent: Boolean(actor?.userId),
+      plateId,
+      idempotencyKeyPresent: Boolean(idempotencyKey),
+      expectedRevision,
+      wellsCount,
+      breakpointSetIdPresent,
+    },
+  };
+}
+
+function internalErrorWithOptionalDebug({
+  requestDebugId,
+  error,
+  actor,
+  plateId,
+  idempotencyKey,
+  expectedRevision,
+  wellsCount,
+  breakpointSetIdPresent,
+}: {
+  requestDebugId: string;
+  error: unknown;
+  actor: AuthenticatedActor | null;
+  plateId: string | null;
+  idempotencyKey: string | null;
+  expectedRevision: number | null;
+  wellsCount: number | null;
+  breakpointSetIdPresent: boolean | null;
+}): NextResponse {
+  const debug = plateSaveDebugPayload({
+    requestDebugId,
+    error,
+    actor,
+    plateId,
+    idempotencyKey,
+    expectedRevision,
+    wellsCount,
+    breakpointSetIdPresent,
+  });
+  console.error(JSON.stringify({
+    level: "error",
+    ...debug,
+  }));
+
+  const payload: {
+    error: {
+      code: string;
+      message: string;
+      debug?: ReturnType<typeof plateSaveDebugPayload>;
+    };
+  } = { error: { code: "INTERNAL_ERROR", message: "処理に失敗しました。" } };
+  if (shouldReturnResearchPublicDebug()) {
+    payload.error.debug = debug;
+  }
+  return NextResponse.json(payload, { status: 500 });
 }
 
 function inputJson(value: unknown): Prisma.InputJsonValue {
@@ -195,9 +330,13 @@ export async function GET(request: Request, { params }: RouteContext) {
 }
 
 export async function PUT(request: Request, { params }: RouteContext) {
+  const requestDebugId = crypto.randomUUID();
   let actor: AuthenticatedActor | null = null;
   let plateId: string | null = null;
   let idempotencyKey: string | null = null;
+  let expectedRevision: number | null = null;
+  let wellsCount: number | null = null;
+  let breakpointSetIdPresent: boolean | null = null;
   try {
     actor = await requireAuthenticatedUser(request);
     const currentActor = actor;
@@ -215,11 +354,13 @@ export async function PUT(request: Request, { params }: RouteContext) {
       );
     }
 
-    const expectedRevision = parseExpectedRevision(request, parsed.data.expectedRevision);
+    expectedRevision = parseExpectedRevision(request, parsed.data.expectedRevision);
     if (expectedRevision === null) {
       return jsonError("PRECONDITION_REQUIRED", "保存にはexpectedRevisionまたはIf-Matchヘッダーが必要です。", 428);
     }
 
+    wellsCount = parsed.data.wells.length;
+    breakpointSetIdPresent = Boolean(parsed.data.breakpointSetId?.trim());
     idempotencyKey = normalizeIdempotencyKey(request, parsed.data.idempotencyKey);
     const hash = requestHash({
       plateId: id,
@@ -428,7 +569,15 @@ export async function PUT(request: Request, { params }: RouteContext) {
     if (idempotencyKey && typeof error === "object" && error && "code" in error && error.code === "P2002") {
       return jsonError("IDEMPOTENCY_RETRY_REQUIRED", "同時送信を検出しました。少し待ってから再試行してください。", 409);
     }
-    console.error(error);
-    return jsonError("INTERNAL_ERROR", "処理に失敗しました。", 500);
+    return internalErrorWithOptionalDebug({
+      requestDebugId,
+      error,
+      actor,
+      plateId,
+      idempotencyKey,
+      expectedRevision,
+      wellsCount,
+      breakpointSetIdPresent,
+    });
   }
 }
