@@ -173,6 +173,8 @@ describe("PUT /api/plates/[id] offline sync safety", () => {
     const sql = mocks.tx.$executeRaw.mock.calls[0][0] as { strings?: string[]; values?: unknown[] };
     expect(sql.strings?.join(" ")).toContain('INSERT INTO "PlateWell"');
     expect(sql.strings?.join(" ")).toContain('ON CONFLICT ("plateId", "rowIndex", "columnIndex")');
+    expect(sql.strings?.join(" ")).toContain('::"WellState"');
+    expect(sql.strings?.join(" ")).toContain('::"DataSource"');
     expect(sql.values).toHaveLength(96 * 11);
     expect(sql.values).toContain("GROWTH");
     expect(sql.values).toContain("INHIBITED");
@@ -241,6 +243,10 @@ describe("PUT /api/plates/[id] offline sync safety", () => {
     expect(sql).not.toBeNull();
     expect(sql?.strings?.join(" ")).toContain('INSERT INTO "PlateWell"');
     expect(sql?.strings?.join(" ")).toContain('ON CONFLICT ("plateId", "rowIndex", "columnIndex")');
+    expect(sql?.strings?.join(" ")).toContain('::"WellState"');
+    expect(sql?.strings?.join(" ")).toContain('::"DataSource"');
+    expect(sql?.strings?.join(" ")).toContain("::double precision");
+    expect(sql?.strings?.join(" ")).toContain("::text");
     expect(sql?.strings?.join(" ")).not.toContain("plate-1");
     expect(sql?.strings?.join(" ")).not.toContain("user-a");
     expect(sql?.values).toHaveLength(96 * 11);

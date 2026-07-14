@@ -24,12 +24,12 @@ export function buildBulkPlateWellUpsertSql({
     ${plateId},
     ${well.rowIndex},
     ${well.columnIndex},
-    ${well.state},
-    ${manualSource},
-    ${null},
+    ${well.state}::"WellState",
+    ${manualSource}::"DataSource",
+    ${null}::double precision,
     ${false},
     ${confirmedAt},
-    ${null},
+    ${null}::text,
     ${confirmedByUserId},
     ${confirmedAt}
   )`);
