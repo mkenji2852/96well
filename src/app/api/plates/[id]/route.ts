@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { authErrorResponse } from "@/lib/api-auth-error";
 import { requireAuthenticatedUser, type AuthenticatedActor } from "@/lib/auth";
 import { recalculatePlateResults, ResultCalculationError } from "@/lib/plate-results";
+import { bulkUpsertPlateWells } from "@/lib/plate-well-bulk-upsert";
 import { prisma } from "@/lib/prisma";
 import { isResearchPublicProduction } from "@/lib/research-public-access";
 import { requirePermission, requirePlateAccess } from "@/lib/rbac";
@@ -453,34 +454,12 @@ export async function PUT(request: Request, { params }: RouteContext) {
       }
 
       const confirmedAt = new Date();
-      for (const well of parsed.data.wells) {
-        await tx.plateWell.upsert({
-          where: { plateId_rowIndex_columnIndex: { plateId: id, rowIndex: well.rowIndex, columnIndex: well.columnIndex } },
-          create: {
-            plateId: id,
-            rowIndex: well.rowIndex,
-            columnIndex: well.columnIndex,
-            state: well.state,
-            source: "MANUAL",
-            confidence: null,
-            needsReview: false,
-            observedAt: confirmedAt,
-            sourcePredictionId: null,
-            confirmedByUserId: currentActor.userId,
-            confirmedAt,
-          },
-          update: {
-            state: well.state,
-            source: "MANUAL",
-            confidence: null,
-            needsReview: false,
-            observedAt: confirmedAt,
-            sourcePredictionId: null,
-            confirmedByUserId: currentActor.userId,
-            confirmedAt,
-          },
-        });
-      }
+      await bulkUpsertPlateWells(tx, {
+        plateId: id,
+        wells: parsed.data.wells,
+        confirmedByUserId: currentActor.userId,
+        confirmedAt,
+      });
 
       const results = parsed.data.breakpointSetId?.trim()
         ? await recalculatePlateResults(tx, id, currentActor, {
@@ -547,7 +526,7 @@ export async function PUT(request: Request, { params }: RouteContext) {
         });
       }
       return { kind: "saved" as const, responseBody };
-    });
+    }, { maxWait: 5000, timeout: 20000 });
 
     if (result.kind === "not_found") return jsonError("NOT_FOUND", "対象のプレートが見つかりません。", 404);
     if (result.kind === "conflict") {

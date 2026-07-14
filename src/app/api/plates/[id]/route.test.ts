@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => {
       update: vi.fn(),
     },
     plateWell: { upsert: vi.fn() },
+    $executeRaw: vi.fn(),
     auditLog: { create: vi.fn() },
     idempotencyRecord: { create: vi.fn() },
   };
@@ -46,6 +47,7 @@ vi.mock("@/lib/prisma", () => ({
   },
 }));
 
+import { buildBulkPlateWellUpsertSql } from "@/lib/plate-well-bulk-upsert";
 import { PUT } from "./route";
 
 const routeContext = { params: Promise.resolve({ id: "plate-1" }) };
@@ -97,6 +99,7 @@ describe("PUT /api/plates/[id] offline sync safety", () => {
     mocks.tx.plate.updateMany.mockResolvedValue({ count: 1 });
     mocks.tx.plate.update.mockResolvedValue({ ...plate(4), status: "DRAFT" });
     mocks.tx.plateWell.upsert.mockResolvedValue({});
+    mocks.tx.$executeRaw.mockResolvedValue(96);
     mocks.tx.auditLog.create.mockResolvedValue({ id: "audit-1" });
     mocks.tx.idempotencyRecord.create.mockResolvedValue({ id: "idem-record-1" });
     mocks.recalculatePlateResults.mockResolvedValue([]);
@@ -127,7 +130,8 @@ describe("PUT /api/plates/[id] offline sync safety", () => {
       where: expect.objectContaining({ wellRevision: 3 }),
       data: { wellRevision: { increment: 1 } },
     }));
-    expect(mocks.tx.plateWell.upsert).toHaveBeenCalledTimes(1);
+    expect(mocks.tx.plateWell.upsert).not.toHaveBeenCalled();
+    expect(mocks.tx.$executeRaw).toHaveBeenCalledTimes(1);
     expect(mocks.tx.idempotencyRecord.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ actorUserId: "user-a", organizationId: "org-a", key: "idem-123456" }),
     }));
@@ -150,6 +154,36 @@ describe("PUT /api/plates/[id] offline sync safety", () => {
     });
     expect(body.conflict.serverWells).toEqual([{ rowIndex: 0, columnIndex: 0, state: "UNREAD" }]);
     expect(mocks.tx.plateWell.upsert).not.toHaveBeenCalled();
+    expect(mocks.tx.$executeRaw).not.toHaveBeenCalled();
+  });
+
+  it("bulk upserts 96 wells with parameterized SQL instead of sequential Prisma upserts", async () => {
+    const wells = Array.from({ length: 96 }, (_, index) => ({
+      rowIndex: Math.floor(index / 12),
+      columnIndex: index % 12,
+      state: index % 2 === 0 ? "GROWTH" : "INHIBITED",
+      source: "MANUAL",
+    }));
+
+    const response = await PUT(request(payload({ wells })), routeContext);
+
+    expect(response.status).toBe(200);
+    expect(mocks.tx.plateWell.upsert).not.toHaveBeenCalled();
+    expect(mocks.tx.$executeRaw).toHaveBeenCalledTimes(1);
+    const sql = mocks.tx.$executeRaw.mock.calls[0][0] as { strings?: string[]; values?: unknown[] };
+    expect(sql.strings?.join(" ")).toContain('INSERT INTO "PlateWell"');
+    expect(sql.strings?.join(" ")).toContain('ON CONFLICT ("plateId", "rowIndex", "columnIndex")');
+    expect(sql.values).toHaveLength(96 * 11);
+    expect(sql.values).toContain("GROWTH");
+    expect(sql.values).toContain("INHIBITED");
+  });
+
+  it("skips PlateWell bulk upsert when wells is empty", async () => {
+    const response = await PUT(request(payload({ wells: [] })), routeContext);
+
+    expect(response.status).toBe(200);
+    expect(mocks.tx.plateWell.upsert).not.toHaveBeenCalled();
+    expect(mocks.tx.$executeRaw).not.toHaveBeenCalled();
   });
 
   it("returns the stored result for a duplicate idempotency key with the same request hash", async () => {
@@ -187,6 +221,29 @@ describe("PUT /api/plates/[id] offline sync safety", () => {
     expect(response.status).toBe(409);
     expect(body.error.code).toBe("IDEMPOTENCY_KEY_REUSED");
     expect(mocks.transaction).not.toHaveBeenCalled();
+  });
+
+  it("builds a bulk upsert statement for 96 wells without embedding values into SQL text", () => {
+    const confirmedAt = new Date("2026-07-14T01:02:03.000Z");
+    const wells = Array.from({ length: 96 }, (_, index) => ({
+      rowIndex: Math.floor(index / 12),
+      columnIndex: index % 12,
+      state: index % 2 === 0 ? "GROWTH" : "INHIBITED",
+    }));
+
+    const sql = buildBulkPlateWellUpsertSql({
+      plateId: "plate-1",
+      wells,
+      confirmedByUserId: "user-a",
+      confirmedAt,
+    }) as { strings?: string[]; values?: unknown[] } | null;
+
+    expect(sql).not.toBeNull();
+    expect(sql?.strings?.join(" ")).toContain('INSERT INTO "PlateWell"');
+    expect(sql?.strings?.join(" ")).toContain('ON CONFLICT ("plateId", "rowIndex", "columnIndex")');
+    expect(sql?.strings?.join(" ")).not.toContain("plate-1");
+    expect(sql?.strings?.join(" ")).not.toContain("user-a");
+    expect(sql?.values).toHaveLength(96 * 11);
   });
 
   it("does not include debug details when research-public debug errors are disabled", async () => {
