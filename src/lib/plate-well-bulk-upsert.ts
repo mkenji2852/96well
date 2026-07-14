@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import { randomUUID } from "node:crypto";
 
 export type PlateWellBulkUpsertInput = {
   rowIndex: number;
@@ -11,16 +12,19 @@ export function buildBulkPlateWellUpsertSql({
   wells,
   confirmedByUserId,
   confirmedAt,
+  createId = randomUUID,
 }: {
   plateId: string;
   wells: PlateWellBulkUpsertInput[];
   confirmedByUserId: string;
   confirmedAt: Date;
+  createId?: () => string;
 }): Prisma.Sql | null {
   if (wells.length === 0) return null;
 
   const manualSource = "MANUAL";
   const rows = wells.map((well) => Prisma.sql`(
+    ${createId()},
     ${plateId},
     ${well.rowIndex},
     ${well.columnIndex},
@@ -36,6 +40,7 @@ export function buildBulkPlateWellUpsertSql({
 
   return Prisma.sql`
     INSERT INTO "PlateWell" (
+      "id",
       "plateId",
       "rowIndex",
       "columnIndex",

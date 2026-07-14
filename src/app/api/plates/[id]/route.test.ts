@@ -172,10 +172,18 @@ describe("PUT /api/plates/[id] offline sync safety", () => {
     expect(mocks.tx.$executeRaw).toHaveBeenCalledTimes(1);
     const sql = mocks.tx.$executeRaw.mock.calls[0][0] as { strings?: string[]; values?: unknown[] };
     expect(sql.strings?.join(" ")).toContain('INSERT INTO "PlateWell"');
+    expect(sql.strings?.join(" ")).toContain('"id"');
     expect(sql.strings?.join(" ")).toContain('ON CONFLICT ("plateId", "rowIndex", "columnIndex")');
+    expect(sql.strings?.join(" ")).not.toContain('"id" = EXCLUDED."id"');
     expect(sql.strings?.join(" ")).toContain('::"WellState"');
     expect(sql.strings?.join(" ")).toContain('::"DataSource"');
-    expect(sql.values).toHaveLength(96 * 11);
+    expect(sql.values).toHaveLength(96 * 12);
+    const generatedIds = sql.values?.filter((value) =>
+      typeof value === "string"
+      && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+    );
+    expect(generatedIds).toHaveLength(96);
+    expect(new Set(generatedIds).size).toBe(96);
     expect(sql.values).toContain("GROWTH");
     expect(sql.values).toContain("INHIBITED");
   });
@@ -238,18 +246,27 @@ describe("PUT /api/plates/[id] offline sync safety", () => {
       wells,
       confirmedByUserId: "user-a",
       confirmedAt,
+      createId: (() => {
+        let index = 0;
+        return () => `well-id-${index++}`;
+      })(),
     }) as { strings?: string[]; values?: unknown[] } | null;
 
     expect(sql).not.toBeNull();
     expect(sql?.strings?.join(" ")).toContain('INSERT INTO "PlateWell"');
+    expect(sql?.strings?.join(" ")).toContain('"id"');
     expect(sql?.strings?.join(" ")).toContain('ON CONFLICT ("plateId", "rowIndex", "columnIndex")');
+    expect(sql?.strings?.join(" ")).not.toContain('"id" = EXCLUDED."id"');
     expect(sql?.strings?.join(" ")).toContain('::"WellState"');
     expect(sql?.strings?.join(" ")).toContain('::"DataSource"');
     expect(sql?.strings?.join(" ")).toContain("::double precision");
     expect(sql?.strings?.join(" ")).toContain("::text");
     expect(sql?.strings?.join(" ")).not.toContain("plate-1");
     expect(sql?.strings?.join(" ")).not.toContain("user-a");
-    expect(sql?.values).toHaveLength(96 * 11);
+    expect(sql?.strings?.join(" ")).not.toContain("well-id-0");
+    expect(sql?.values).toHaveLength(96 * 12);
+    expect(sql?.values?.filter((value) => typeof value === "string" && value.startsWith("well-id-"))).toHaveLength(96);
+    expect(new Set(sql?.values?.filter((value) => typeof value === "string" && value.startsWith("well-id-"))).size).toBe(96);
   });
 
   it("does not include debug details when research-public debug errors are disabled", async () => {
