@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { PlateEditor } from "@/components/plate-editor";
 import { COMMON_ORGANISMS, ORGANISM_DATALIST_ID } from "@/lib/organisms";
 import { ROW_LABELS, type CreateSampleRequest, type DrugConfigInput, type PlateView } from "@/types/domain";
@@ -33,6 +33,11 @@ const copy = {
   ja: {
     title: "MIC Plate Recorder",
     subtitle: "研究用・ローカル利用向けに、Sample、菌名、プレート、薬剤配置を固定してから96ウェル入力へ進みます。",
+    menuTitle: "初期メニュー",
+    menuHelp: "最初に行う操作を選んでください。研究用・非臨床データのみを扱います。",
+    createPlateMenu: "プレート作成",
+    imageAnalysisMenu: "画像解析へ",
+    settingsMenu: "菌種 / Breakpoint設定",
     existing: "既存Sample / Plateを開く",
     newSample: "新規Sample",
     sampleCode: "Sample-ID",
@@ -55,6 +60,11 @@ const copy = {
   en: {
     title: "MIC Plate Recorder",
     subtitle: "For research/local use: choose a sample, organism, plate, and fixed drug layout before 96-well entry.",
+    menuTitle: "Start menu",
+    menuHelp: "Choose what to do first. Use research-only, non-clinical data.",
+    createPlateMenu: "Create plate",
+    imageAnalysisMenu: "Image analysis",
+    settingsMenu: "Organism / Breakpoint settings",
     existing: "Open existing Sample / Plate",
     newSample: "New sample",
     sampleCode: "Sample ID",
@@ -96,6 +106,20 @@ function apiErrorMessage(payload: ApiErrorPayload | null, fallback: string): str
   return fallback;
 }
 
+function connectionErrorMessage(locale: Locale): string {
+  return locale === "ja"
+    ? "ローカルアプリのサーバーに接続できません。pnpm dev が起動しているか、サーバーが途中で停止していないか確認してください。"
+    : "Could not connect to the app server. Check that pnpm dev is running and the server has not stopped.";
+}
+
+function uiErrorMessage(caught: unknown, fallback: string, locale: Locale): string {
+  if (caught instanceof TypeError && /fetch|network|load failed/i.test(caught.message)) {
+    return connectionErrorMessage(locale);
+  }
+  if (caught instanceof Error) return caught.message === "Failed to fetch" ? connectionErrorMessage(locale) : caught.message;
+  return fallback;
+}
+
 function createRowLayouts(): RowLayoutDraft[] {
   return ROW_LABELS.map((_, rowIndex) => ({
     rowIndex,
@@ -122,6 +146,7 @@ export default function Home() {
   const [plate, setPlate] = useState<PlateView | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const sampleInputRef = useRef<HTMLInputElement | null>(null);
   const t = copy[locale];
 
   const selectedSample = useMemo(
@@ -143,9 +168,11 @@ export default function Home() {
         const firstPlate = data.samples?.flatMap((sample) => sample.plates)[0];
         if (firstPlate) setSelectedPlateId(firstPlate.id);
       })
-      .catch(() => undefined);
+      .catch((caught) => {
+        if (!cancelled) setError(uiErrorMessage(caught, locale === "ja" ? "Sample一覧の取得に失敗しました。" : "Sample loading failed.", locale));
+      });
     return () => { cancelled = true; };
-  }, []);
+  }, [locale]);
 
   const updateRowLayout = (rowIndex: number, patch: Partial<RowLayoutDraft>) => {
     setRowLayouts((current) => current.map((row) => row.rowIndex === rowIndex ? { ...row, ...patch } : row));
@@ -161,7 +188,7 @@ export default function Home() {
       if (!response.ok) throw new Error(apiErrorMessage(data, "Plate loading failed"));
       setPlate(data);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Plate loading failed");
+      setError(uiErrorMessage(caught, locale === "ja" ? "Plateの読み込みに失敗しました。" : "Plate loading failed", locale));
     } finally {
       setBusy(false);
     }
@@ -209,7 +236,7 @@ export default function Home() {
       if (!response.ok) throw new Error(apiErrorMessage(data, "Create failed"));
       await openPlate(data.plate.id);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Create failed");
+      setError(uiErrorMessage(caught, locale === "ja" ? "Sample / Plate作成に失敗しました。" : "Create failed", locale));
     } finally {
       setBusy(false);
     }
@@ -235,6 +262,30 @@ export default function Home() {
         <p>{t.subtitle}</p>
       </section>
 
+      {stage === "sample" && (
+        <section className="initial-menu-card" aria-labelledby="initial-menu-title">
+          <div>
+            <p className="eyebrow">Start</p>
+            <h2 id="initial-menu-title">{t.menuTitle}</h2>
+            <p>{t.menuHelp}</p>
+          </div>
+          <div className="initial-menu-actions">
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() => {
+                setStage("sample");
+                sampleInputRef.current?.focus();
+              }}
+            >
+              {t.createPlateMenu}<span aria-hidden="true">→</span>
+            </button>
+            <a className="secondary-button" href="/review/image">{t.imageAnalysisMenu}</a>
+            <a className="secondary-button" href="/breakpoints">{t.settingsMenu}</a>
+          </div>
+        </section>
+      )}
+
       <datalist id={ORGANISM_DATALIST_ID}>
         {COMMON_ORGANISMS.map((name) => <option value={name} key={name} />)}
       </datalist>
@@ -246,7 +297,7 @@ export default function Home() {
             <div className="section-body">
               <h2>{t.newSample}</h2>
               <div className="field-grid">
-                <label>{t.sampleCode}<input required value={sampleCode} onChange={(event) => setSampleCode(event.target.value)} placeholder="SMP-001" /></label>
+                <label>{t.sampleCode}<input ref={sampleInputRef} required value={sampleCode} onChange={(event) => setSampleCode(event.target.value)} placeholder="SMP-001" /></label>
                 <label>{t.organism}<input list={ORGANISM_DATALIST_ID} value={organism} onChange={(event) => setOrganism(event.target.value)} placeholder="Escherichia coli" /></label>
                 <label>{t.plateType}
                   <select value={plateType} onChange={(event) => setPlateType(event.target.value)}>
