@@ -62,11 +62,13 @@ describe("POST /api/breakpoints", () => {
     mocks.auditCreate.mockResolvedValue({ id: "audit-1" });
   });
 
-  it("rejects TECHNICIAN with 403", async () => {
+  it("allows TECHNICIAN to create a research breakpoint draft", async () => {
     mocks.state.actor.role = "TECHNICIAN";
     const response = await POST(request());
-    expect(response.status).toBe(403);
-    expect(mocks.breakpointCreate).not.toHaveBeenCalled();
+    expect(response.status).toBe(201);
+    expect(mocks.breakpointCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ organizationId: "org-a", breakpointSetId: "bps-1" }),
+    }));
   });
 
   it("allows ADMIN and fixes organization/audit actor from the session", async () => {

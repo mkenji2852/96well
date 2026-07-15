@@ -164,7 +164,8 @@ export function BreakpointManager() {
   const [cloneVersion, setCloneVersion] = useState("");
   const [editingRule, setEditingRule] = useState<BreakpointRuleView | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const isAdmin = role === "ADMIN";
+  const canEdit = role === "TECHNICIAN" || role === "REVIEWER" || role === "ADMIN";
+  const canApprove = role === "ADMIN";
   const diff = useMemo(() => detail ? diffRules(detail) : [], [detail]);
   const breakpointOrganismDatalistId = "breakpoint-common-organisms";
 
@@ -345,7 +346,7 @@ export function BreakpointManager() {
           <datalist id={breakpointOrganismDatalistId}>
             {COMMON_ORGANISMS.map((name) => <option value={name} key={name} />)}
           </datalist>
-          {isAdmin && (
+          {canEdit && (
             <details className="breakpoint-create-panel">
               <summary>新しいDRAFTを作成</summary>
               <form className="breakpoint-form" onSubmit={createSet}>
@@ -366,9 +367,9 @@ export function BreakpointManager() {
               <div className="breakpoint-detail-head">
                 <div><span className={`status-chip status-${detail.status.toLowerCase()}`}>{detail.status}</span><h2>{detail.standard} {detail.version}</h2></div>
                 <div className="breakpoint-actions">
-                  {isAdmin && detail.status === "DRAFT" && <button type="button" className="primary-button" onClick={(event) => openModal("approve", event.currentTarget)}>承認</button>}
-                  {isAdmin && detail.status === "APPROVED" && <button type="button" className="secondary-button danger-action" onClick={(event) => openModal("retire", event.currentTarget)}>失効</button>}
-                  {isAdmin && <button type="button" className="secondary-button" onClick={(event) => openModal("clone", event.currentTarget)}>clone</button>}
+                  {canApprove && detail.status === "DRAFT" && <button type="button" className="primary-button" onClick={(event) => openModal("approve", event.currentTarget)}>承認</button>}
+                  {canApprove && detail.status === "APPROVED" && <button type="button" className="secondary-button danger-action" onClick={(event) => openModal("retire", event.currentTarget)}>失効</button>}
+                  {canEdit && <button type="button" className="secondary-button" onClick={(event) => openModal("clone", event.currentTarget)}>clone</button>}
                 </div>
               </div>
               <dl className="breakpoint-metadata">
@@ -380,7 +381,7 @@ export function BreakpointManager() {
                 <div><dt>Revision</dt><dd>{detail.revision}</dd></div>
               </dl>
 
-              {isAdmin && detail.status === "DRAFT" && (
+              {canEdit && detail.status === "DRAFT" && (
                 <form className="breakpoint-form breakpoint-edit-form" onSubmit={updateSet}>
                   <label>Standard<select name="standard" defaultValue={detail.standard} key={`standard-${detail.id}-${detail.revision}`}><option>CLSI</option><option>EUCAST</option><option>JANIS_COMPAT</option></select></label>
                   <label>Version<input name="version" defaultValue={detail.version} key={`version-${detail.id}-${detail.revision}`} required /></label>
@@ -401,7 +402,7 @@ export function BreakpointManager() {
                     <tbody>{detail.rules.map((rule) => (
                       <tr key={rule.id}>
                         <td>{rule.drugName}</td><td>{rule.organism ?? "全菌種"}</td><td>{interpretationLabel(rule)}</td><td>{exampleInterpretation(rule)}</td><td>{rule.unit}</td>
-                        <td>{isAdmin && detail.status === "DRAFT"
+                        <td>{canEdit && detail.status === "DRAFT"
                           ? <span className="rule-row-actions">
                             <button type="button" className="text-button" onClick={() => setEditingRule(rule)}>編集</button>
                             <button type="button" className="text-button" onClick={() => request(`/api/breakpoint-sets/${detail.id}/rules/${rule.id}`, "DELETE", { expectedRevision: detail.revision }, "ruleを削除しました。")}>削除</button>
@@ -411,7 +412,7 @@ export function BreakpointManager() {
                     ))}</tbody>
                   </table>
                 </div>
-                {isAdmin && detail.status === "DRAFT" && (
+                {canEdit && detail.status === "DRAFT" && (
                   <>
                     {editingRule && (
                       <form className="breakpoint-form rule-add-form rule-edit-form" onSubmit={updateRule}>

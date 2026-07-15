@@ -22,7 +22,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 export async function POST(request: Request, { params }: RouteContext) {
   try {
     const actor = await requireAuthenticatedUser(request);
-    requirePermission(actor, "breakpoint:write");
+    requirePermission(actor, "breakpoint:approve");
     const { id } = await params;
     await requireBreakpointSetAccess(actor, id);
     const parsed = approveBreakpointSetSchema.safeParse(await request.json().catch(() => null));

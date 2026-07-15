@@ -106,10 +106,10 @@ describe("POST /api/breakpoint-sets/:id/rules", () => {
     }));
   });
 
-  it("rejects TECHNICIAN with 403", async () => {
+  it("lets TECHNICIAN add a rule to a DRAFT set", async () => {
     mocks.actor.role = "TECHNICIAN";
     const response = await POST(request(), context);
-    expect(response.status).toBe(403);
-    expect(mocks.transaction).not.toHaveBeenCalled();
+    expect(response.status).toBe(201);
+    expect(mocks.ruleCreate).toHaveBeenCalled();
   });
 });

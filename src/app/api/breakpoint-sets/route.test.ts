@@ -48,14 +48,20 @@ describe("/api/breakpoint-sets", () => {
     }));
   });
 
-  it("does not let TECHNICIAN create a set", async () => {
+  it("lets TECHNICIAN create a DRAFT set for research configuration", async () => {
     const response = await POST(new Request("http://localhost/api/breakpoint-sets", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ standard: "CLSI", version: "2027.1", organism: "E. coli", unit: "mg/L", method: "BROTH_MICRODILUTION" }),
     }));
-    expect(response.status).toBe(403);
-    expect(mocks.create).not.toHaveBeenCalled();
+    expect(response.status).toBe(201);
+    expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        organizationId: "org-a",
+        createdByUserId: "tech-1",
+        status: "DRAFT",
+      }),
+    }));
   });
 
   it("creates DRAFT for ADMIN and fixes organization/creator from the session", async () => {

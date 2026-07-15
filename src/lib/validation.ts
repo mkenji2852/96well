@@ -35,6 +35,25 @@ export const createBreakpointSchema = z.object({
 });
 
 const breakpointStandardSchema = z.enum(["CLSI", "EUCAST", "JANIS_COMPAT"]);
+export const userRoleSchema = z.enum(["TECHNICIAN", "REVIEWER", "ADMIN", "AUDITOR"]);
+const optionalTrimmedText = (max: number) => z.string().trim().max(max).optional();
+
+export const createUserSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  email: z.string().trim().email().max(200),
+  externalSubject: optionalTrimmedText(300),
+  role: userRoleSchema.default("TECHNICIAN"),
+  active: z.boolean().default(true),
+}).strict();
+
+export const updateUserSchema = z.object({
+  name: optionalTrimmedText(120),
+  email: z.string().trim().email().max(200).optional(),
+  externalSubject: z.string().trim().max(300).nullable().optional(),
+  role: userRoleSchema.optional(),
+  active: z.boolean().optional(),
+}).strict();
+
 const nullableDateSchema = z.string().datetime({ offset: true }).nullable().optional();
 
 export const createBreakpointSetSchema = z.object({

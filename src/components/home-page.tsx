@@ -41,6 +41,16 @@ interface LocalSettings {
   breakpointSets: string[];
 }
 
+interface ParticipantUser {
+  id: string;
+  name: string;
+  email: string;
+  externalSubject: string | null;
+  role: "TECHNICIAN" | "REVIEWER" | "ADMIN" | "AUDITOR";
+  active: boolean;
+  createdAt: string;
+}
+
 interface BatchUploadStatus {
   fileName: string;
   status: "pending" | "uploading" | "done" | "error";
@@ -278,6 +288,12 @@ export default function Home() {
   const [localBreakpointSets, setLocalBreakpointSets] = useState<string[]>([]);
   const [settingsOrganismDraft, setSettingsOrganismDraft] = useState("");
   const [settingsBreakpointDraft, setSettingsBreakpointDraft] = useState("");
+  const [participantUsers, setParticipantUsers] = useState<ParticipantUser[]>([]);
+  const [participantUserError, setParticipantUserError] = useState("");
+  const [participantNameDraft, setParticipantNameDraft] = useState("");
+  const [participantEmailDraft, setParticipantEmailDraft] = useState("");
+  const [participantSubjectDraft, setParticipantSubjectDraft] = useState("");
+  const [participantRoleDraft, setParticipantRoleDraft] = useState<ParticipantUser["role"]>("TECHNICIAN");
   const [imageBatchFiles, setImageBatchFiles] = useState<File[]>([]);
   const [imageBatchStatuses, setImageBatchStatuses] = useState<BatchUploadStatus[]>([]);
   const [drugLayouts, setDrugLayouts] = useState<DrugLayoutDraft[]>(() => createDrugLayouts());
@@ -340,6 +356,24 @@ export default function Home() {
       .catch(() => undefined);
     return () => { cancelled = true; };
   }, []);
+
+  useEffect(() => {
+    if (stage !== "settings") return;
+    let cancelled = false;
+    setParticipantUserError("");
+    fetch("/api/users")
+      .then((response) => readJsonResponse<{ users: ParticipantUser[] } & ApiErrorPayload>(response)
+        .then((data) => ({ response, data })))
+      .then(({ response, data }) => {
+        if (cancelled) return;
+        if (!response.ok) throw new Error(apiErrorMessage(data, "ユーザー一覧の取得に失敗しました。"));
+        setParticipantUsers(data.users ?? []);
+      })
+      .catch((caught) => {
+        if (!cancelled) setParticipantUserError(userFacingError(caught, "ユーザー一覧の取得に失敗しました。ADMINのみ編集できます。"));
+      });
+    return () => { cancelled = true; };
+  }, [stage]);
 
   const activeDrug = drugLayouts.find((drug) => drug.id === activeDrugId) ?? drugLayouts[0];
   const assignedWellMap = useMemo(() => {
@@ -620,6 +654,52 @@ export default function Home() {
     setSettingsBreakpointDraft("");
   };
 
+  const createParticipantUser = async () => {
+    setParticipantUserError("");
+    if (!participantNameDraft.trim() || !participantEmailDraft.trim()) {
+      setParticipantUserError("ユーザー名とメールアドレスを入力してください。");
+      return;
+    }
+    try {
+      const response = await fetch("/api/users", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: participantNameDraft.trim(),
+          email: participantEmailDraft.trim(),
+          externalSubject: participantSubjectDraft.trim() || undefined,
+          role: participantRoleDraft,
+          active: true,
+        }),
+      });
+      const data = await readJsonResponse<{ user?: ParticipantUser } & ApiErrorPayload>(response);
+      if (!response.ok || !data.user) throw new Error(apiErrorMessage(data, "ユーザー作成に失敗しました。"));
+      setParticipantUsers((current) => [data.user!, ...current]);
+      setParticipantNameDraft("");
+      setParticipantEmailDraft("");
+      setParticipantSubjectDraft("");
+      setParticipantRoleDraft("TECHNICIAN");
+    } catch (caught) {
+      setParticipantUserError(userFacingError(caught, "ユーザー作成に失敗しました。"));
+    }
+  };
+
+  const updateParticipantUser = async (userId: string, patch: Partial<Pick<ParticipantUser, "role" | "active" | "externalSubject">>) => {
+    setParticipantUserError("");
+    try {
+      const response = await fetch(`/api/users/${userId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      const data = await readJsonResponse<{ user?: ParticipantUser } & ApiErrorPayload>(response);
+      if (!response.ok || !data.user) throw new Error(apiErrorMessage(data, "ユーザー更新に失敗しました。"));
+      setParticipantUsers((current) => current.map((user) => user.id === userId ? data.user! : user));
+    } catch (caught) {
+      setParticipantUserError(userFacingError(caught, "ユーザー更新に失敗しました。"));
+    }
+  };
+
   const uploadImageBatch = async (event: FormEvent) => {
     event.preventDefault();
     setError("");
@@ -811,6 +891,49 @@ export default function Home() {
               </div>
               <div className="settings-grid">
                 <section>
+                  <h3>参加ユーザー</h3>
+                  <p className="muted-text">
+                    外部公開時は、ここで有効化したユーザーの external subject を認証済みユーザーとして扱います。
+                    role と organization はDBのUser設定を使用します。
+                  </p>
+                  <div className="participant-form">
+                    <input value={participantNameDraft} onChange={(event) => setParticipantNameDraft(event.target.value)} placeholder="表示名" />
+                    <input value={participantEmailDraft} onChange={(event) => setParticipantEmailDraft(event.target.value)} placeholder="email@example.test" />
+                    <input value={participantSubjectDraft} onChange={(event) => setParticipantSubjectDraft(event.target.value)} placeholder="Cloudflare/OIDC subject（任意）" />
+                    <select value={participantRoleDraft} onChange={(event) => setParticipantRoleDraft(event.target.value as ParticipantUser["role"])}>
+                      <option value="TECHNICIAN">TECHNICIAN</option>
+                      <option value="REVIEWER">REVIEWER</option>
+                      <option value="ADMIN">ADMIN</option>
+                      <option value="AUDITOR">AUDITOR</option>
+                    </select>
+                    <button type="button" className="secondary-button" onClick={createParticipantUser}>追加</button>
+                  </div>
+                  {participantUserError && <p className="validation-hint" role="alert">{participantUserError}</p>}
+                  <ul className="settings-list participant-list">
+                    {participantUsers.map((user) => (
+                      <li key={user.id}>
+                        <span>
+                          <strong>{user.name}</strong>
+                          <small>{user.email} / {user.externalSubject ? "subject登録済み" : "subject未設定"}</small>
+                        </span>
+                        <select value={user.role} onChange={(event) => updateParticipantUser(user.id, { role: event.target.value as ParticipantUser["role"] })}>
+                          <option value="TECHNICIAN">TECHNICIAN</option>
+                          <option value="REVIEWER">REVIEWER</option>
+                          <option value="ADMIN">ADMIN</option>
+                          <option value="AUDITOR">AUDITOR</option>
+                        </select>
+                        <button
+                          type="button"
+                          className={user.active ? "secondary-button danger-action" : "secondary-button"}
+                          onClick={() => updateParticipantUser(user.id, { active: !user.active })}
+                        >
+                          {user.active ? "無効化" : "有効化"}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+                <section>
                   <h3>菌種リスト</h3>
                   <div className="inline-input-action">
                     <input value={settingsOrganismDraft} onChange={(event) => setSettingsOrganismDraft(event.target.value)} placeholder="例: Escherichia coli" />
@@ -830,7 +953,13 @@ export default function Home() {
                   </ul>
                 </section>
                 <section>
-                  <h3>Breakpoint set候補</h3>
+                  <h3>Breakpoint設定</h3>
+                  <p className="muted-text">
+                    CLSIなどのS/I/R値は専用画面で入力できます。例: Ampicillin S≤4 / I=8 / R≥16。
+                    DRAFTの作成とrule入力は研究ユーザーでも可能で、承認・失効はADMINのみです。
+                  </p>
+                  <a className="primary-button" href="/breakpoints">Breakpoint設定画面を開く</a>
+                  <h4>ローカル候補メモ</h4>
                   <div className="inline-input-action">
                     <input value={settingsBreakpointDraft} onChange={(event) => setSettingsBreakpointDraft(event.target.value)} placeholder="例: CLSI 2026 local draft" />
                     <button type="button" className="secondary-button" onClick={addLocalBreakpointSet}>追加</button>

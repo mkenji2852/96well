@@ -24,7 +24,38 @@ export async function DELETE(request: Request, { params }: RouteContext) {
         },
       });
       if (!sample) return null;
+      const plateIds = sample.plates.map((plate) => plate.id);
+      const assessments = plateIds.length
+        ? await tx.imageAssessment.findMany({
+          where: { plateId: { in: plateIds } },
+          select: { id: true },
+        })
+        : [];
+      const assessmentIds = assessments.map((assessment) => assessment.id);
 
+      if (plateIds.length > 0) {
+        await tx.sirInterpretation.updateMany({
+          where: { plateId: { in: plateIds } },
+          data: { supersedesId: null },
+        });
+        await tx.rawMic.updateMany({
+          where: { plateId: { in: plateIds } },
+          data: { supersedesId: null },
+        });
+        if (assessmentIds.length > 0) {
+          await tx.imageWellOverride.deleteMany({ where: { assessmentId: { in: assessmentIds } } });
+          await tx.imageReview.deleteMany({ where: { assessmentId: { in: assessmentIds } } });
+        }
+        await tx.plateWell.deleteMany({ where: { plateId: { in: plateIds } } });
+        await tx.sirInterpretation.deleteMany({ where: { plateId: { in: plateIds } } });
+        await tx.rawMic.deleteMany({ where: { plateId: { in: plateIds } } });
+        await tx.exportRecord.deleteMany({ where: { plateId: { in: plateIds } } });
+        await tx.imagePrediction.deleteMany({ where: { plateId: { in: plateIds } } });
+        await tx.imageAssessment.deleteMany({ where: { plateId: { in: plateIds } } });
+        await tx.plateDrug.deleteMany({ where: { plateId: { in: plateIds } } });
+        await tx.idempotencyRecord.deleteMany({ where: { plateId: { in: plateIds } } });
+        await tx.plate.deleteMany({ where: { id: { in: plateIds }, organizationId: actor.organizationId } });
+      }
       await tx.sample.delete({ where: { id: sample.id } });
       await tx.auditLog.create({
         data: {

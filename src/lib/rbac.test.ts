@@ -11,13 +11,16 @@ const actor = (role: AuthenticatedActor["role"], organizationId = "org-a"): Auth
 });
 
 describe("role and organization permissions", () => {
-  it("allows technicians to enter data but not maintain breakpoints", () => {
+  it("allows technicians to enter data and draft breakpoint rules, but not approve them", () => {
     expect(() => requirePermission(actor("TECHNICIAN"), "plate:write")).not.toThrow();
-    expect(() => requirePermission(actor("TECHNICIAN"), "breakpoint:write")).toThrowError(AuthError);
+    expect(() => requirePermission(actor("TECHNICIAN"), "breakpoint:write")).not.toThrow();
+    expect(() => requirePermission(actor("TECHNICIAN"), "breakpoint:approve")).toThrowError(AuthError);
   });
 
-  it("allows administrators to maintain breakpoints", () => {
+  it("allows administrators to approve breakpoints and manage users", () => {
     expect(() => requirePermission(actor("ADMIN"), "breakpoint:write")).not.toThrow();
+    expect(() => requirePermission(actor("ADMIN"), "breakpoint:approve")).not.toThrow();
+    expect(() => requirePermission(actor("ADMIN"), "user:manage")).not.toThrow();
   });
 
   it("separates Excel export permissions by profile", () => {
