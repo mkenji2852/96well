@@ -36,7 +36,7 @@ import {
   type WellDetails,
   type WellDetailsMap,
 } from "@/lib/plate-ui";
-import { ROW_LABELS, type ExportProfile, type PlateView, type SavePlateRequest, type UserRole, type WellInput } from "@/types/domain";
+import { ROW_LABELS, type BreakpointSetView, type ExportProfile, type PlateView, type SavePlateRequest, type UserRole, type WellInput } from "@/types/domain";
 
 type Locale = "ja" | "en";
 
@@ -322,6 +322,9 @@ export function PlateEditor({
   const [exportBusy, setExportBusy] = useState(false);
   const [exportError, setExportError] = useState("");
   const [exportDownload, setExportDownload] = useState<{ href: string; fileName: string } | null>(null);
+  const [breakpointSets, setBreakpointSets] = useState<BreakpointSetView[]>([]);
+  const [selectedBreakpointSetId, setSelectedBreakpointSetId] = useState(plate.lastBreakpointSetId ?? "");
+  const [breakpointChangeReason, setBreakpointChangeReason] = useState("");
   const [imageUploadBusy, setImageUploadBusy] = useState(false);
   const [imageUploadError, setImageUploadError] = useState("");
   const [imageUploadResult, setImageUploadResult] = useState<ImageUploadResponse | null>(null);
@@ -338,10 +341,18 @@ export function PlateEditor({
   }, [selectedKey]);
   const emptyCount = countEmptyWells(wells);
   const exportProfiles = useMemo(() => allowedExportProfiles(actorRole), [actorRole]);
+  const selectedBreakpointSet = useMemo(
+    () => breakpointSets.find((set) => set.id === selectedBreakpointSetId) ?? plate.selectedBreakpointSet ?? null,
+    [breakpointSets, plate.selectedBreakpointSet, selectedBreakpointSetId],
+  );
 
   const buildPayload = (states: PlateStateMap, revision = serverRevision): SavePlateRequest => ({
     expectedRevision: revision,
     wells: statesToWellInputs(states),
+    breakpointSetId: selectedBreakpointSetId || undefined,
+    breakpointChangeReason: selectedBreakpointSetId && plate.lastBreakpointSetId && selectedBreakpointSetId !== plate.lastBreakpointSetId
+      ? breakpointChangeReason.trim() || undefined
+      : undefined,
   });
 
   const applySyncResults = (results: OfflineSyncResult[], localPayload = buildPayload(wells), successMessage: string = t.synced) => {
@@ -396,6 +407,18 @@ export function PlateEditor({
       });
     return () => { cancelled = true; };
   }, [t.authRequired]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/breakpoint-sets?status=APPROVED")
+      .then(async (response) => response.ok ? response.json() : Promise.reject(new Error("breakpoint set loading failed")))
+      .then((data) => {
+        if (cancelled) return;
+        setBreakpointSets((data.breakpointSets ?? []) as BreakpointSetView[]);
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     if (!exportProfiles.includes(exportProfile)) setExportProfile("ANONYMIZED");
@@ -592,6 +615,10 @@ export function PlateEditor({
     if (validationErrors.length > 0) return;
     if (!actor) {
       setErrors([t.authRequired]);
+      return;
+    }
+    if (selectedBreakpointSetId && plate.lastBreakpointSetId && selectedBreakpointSetId !== plate.lastBreakpointSetId && !breakpointChangeReason.trim()) {
+      setErrors(["BreakpointSetを変更する場合は理由を入力してください。"]);
       return;
     }
 
@@ -895,6 +922,53 @@ export function PlateEditor({
       )}
 
       {message && <p className="status-message" role="status">{message}</p>}
+
+      <section className="breakpoint-selector-panel" aria-labelledby="plate-breakpoint-title">
+        <div>
+          <p className="eyebrow">OPTIONAL S/I/R</p>
+          <h2 id="plate-breakpoint-title">Breakpoint判定（任意）</h2>
+          <p>
+            承認済みBreakpointSetを選択すると、保存時にMICからS/I/Rを計算します。
+            未選択ならBreakpointなしで保存します。
+          </p>
+          <p className="muted-text">例: Ampicillin S≤4 / I=8 / R≥16 のruleなら、MIC=8は I と表示されます。</p>
+        </div>
+        <div className="breakpoint-selector-controls">
+          <label>
+            <span>使用するBreakpointSet</span>
+            <select
+              value={selectedBreakpointSetId}
+              onChange={(event) => setSelectedBreakpointSetId(event.target.value)}
+              disabled={saving}
+            >
+              <option value="">判定しない</option>
+              {breakpointSets.map((set) => (
+                <option key={set.id} value={set.id}>
+                  {set.standard} {set.version} / {set.organism ?? "全菌種"} / {set.ruleCount} rules
+                </option>
+              ))}
+            </select>
+          </label>
+          {selectedBreakpointSetId && plate.lastBreakpointSetId && selectedBreakpointSetId !== plate.lastBreakpointSetId && (
+            <label>
+              <span>BreakpointSet変更理由</span>
+              <textarea
+                rows={2}
+                value={breakpointChangeReason}
+                onChange={(event) => setBreakpointChangeReason(event.target.value)}
+                disabled={saving}
+                placeholder="例: CLSI 2026 local ruleへ更新"
+              />
+            </label>
+          )}
+          {selectedBreakpointSet && (
+            <div className="breakpoint-selection-summary">
+              <strong>{selectedBreakpointSet.standard} {selectedBreakpointSet.version}</strong>
+              <span>{selectedBreakpointSet.organism ?? "全菌種"} / {selectedBreakpointSet.status}</span>
+            </div>
+          )}
+        </div>
+      </section>
 
       <section className="image-panel image-upload-panel" aria-labelledby="image-upload-title">
         <div>

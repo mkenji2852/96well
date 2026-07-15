@@ -259,6 +259,8 @@ export async function recalculatePlateResults(
       organism: breakpointRule.organism,
       standard: breakpointRule.standard as BreakpointStandard,
       susceptibleMax: breakpointRule.susceptibleMax,
+      intermediateMin: breakpointRule.intermediateMin,
+      intermediateMax: breakpointRule.intermediateMax,
       resistantMin: breakpointRule.resistantMin,
       version: breakpointRule.version,
       unit: breakpointRule.unit,

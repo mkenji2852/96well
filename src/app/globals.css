@@ -11,7 +11,7 @@
   --shadow: 0 14px 40px rgba(23, 50, 77, 0.09);
 }
 
-.breakpoint-selector-panel { display: none; width: min(1080px, calc(100% - 32px)); margin: 0 auto 14px; padding: 18px; grid-template-columns: minmax(220px, .8fr) minmax(320px, 1.2fr); gap: 22px; border: 1px solid var(--line); border-radius: 16px; background: #fff; box-shadow: 0 8px 24px rgba(23,50,77,.06); }
+.breakpoint-selector-panel { display: grid; width: min(1080px, calc(100% - 32px)); margin: 0 auto 14px; padding: 18px; grid-template-columns: minmax(220px, .8fr) minmax(320px, 1.2fr); gap: 22px; border: 1px solid var(--line); border-radius: 16px; background: #fff; box-shadow: 0 8px 24px rgba(23,50,77,.06); }
 .breakpoint-selector-panel h2 { margin: 2px 0 8px; }
 .breakpoint-selector-panel p { margin: 0; color: var(--muted); line-height: 1.6; }
 .breakpoint-selector-controls { display: grid; gap: 10px; }
@@ -60,13 +60,14 @@
 .breakpoint-rule-table { width: 100%; border-collapse: collapse; }
 .breakpoint-rule-table th, .breakpoint-rule-table td { padding: 10px; text-align: left; border-bottom: 1px solid var(--line); }
 .breakpoint-rule-table th { color: var(--muted); font-size: 12px; }
-.rule-add-form { grid-template-columns: 2fr 1fr 1fr auto; }
+.rule-add-form { grid-template-columns: minmax(180px, 2fr) repeat(4, minmax(90px, 1fr)) auto; }
 .rule-edit-form { padding: 12px; border: 1px solid #d5b27a; border-radius: 12px; background: #fff8e9; }
 .rule-row-actions, .rule-edit-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .rule-edit-actions .primary-button, .rule-edit-actions .secondary-button { flex: 1; min-width: 86px; }
 .breakpoint-diff { margin-top: 22px; padding: 16px; border: 1px solid #c9d8df; border-radius: 14px; background: #f8fafb; }
 .breakpoint-diff h3 { margin-top: 0; }
 .breakpoint-diff li { margin-block: 7px; line-height: 1.5; }
+.breakpoint-input-help { margin-top: 10px; }
 .breakpoint-modal-backdrop { z-index: 90; }
 .breakpoint-modal > header { padding: 20px 22px; }
 .breakpoint-modal-body { padding: 18px 22px; }

@@ -36,6 +36,31 @@ function toIso(value: FormDataEntryValue | null): string | null {
   return text ? new Date(`${text}T00:00:00.000Z`).toISOString() : null;
 }
 
+function optionalNumber(value: FormDataEntryValue | null): number | null {
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  const number = Number(text);
+  return Number.isFinite(number) ? number : null;
+}
+
+function interpretationLabel(rule: Pick<BreakpointRuleView, "susceptibleMax" | "intermediateMin" | "intermediateMax" | "resistantMin">): string {
+  const iMin = rule.intermediateMin;
+  const iMax = rule.intermediateMax;
+  const intermediate = iMin == null && iMax == null
+    ? `${rule.susceptibleMax} < I < ${rule.resistantMin}`
+    : iMin === iMax
+      ? `I = ${iMin}`
+      : `I ${iMin ?? `>${rule.susceptibleMax}`}–${iMax ?? `<${rule.resistantMin}`}`;
+  return `S ≤ ${rule.susceptibleMax} / ${intermediate} / R ≥ ${rule.resistantMin}`;
+}
+
+function exampleInterpretation(rule: Pick<BreakpointRuleView, "susceptibleMax" | "intermediateMin" | "intermediateMax" | "resistantMin">): string {
+  const value = rule.intermediateMin ?? rule.intermediateMax ?? (rule.susceptibleMax + rule.resistantMin) / 2;
+  if (value <= rule.susceptibleMax) return `MIC=${value} → S`;
+  if (value >= rule.resistantMin) return `MIC=${value} → R`;
+  return `MIC=${value} → I`;
+}
+
 function ruleKey(rule: BreakpointRuleView): string {
   return [rule.drugName, rule.organism ?? "", rule.unit, rule.method].join("|");
 }
@@ -250,6 +275,8 @@ export function BreakpointManager() {
       organism: detail.organism,
       susceptibleMax: Number(form.get("susceptibleMax")),
       resistantMin: Number(form.get("resistantMin")),
+      intermediateMin: optionalNumber(form.get("intermediateMin")),
+      intermediateMax: optionalNumber(form.get("intermediateMax")),
       unit: detail.unit,
       method: detail.method,
       exceptionJson: null,
@@ -267,8 +294,8 @@ export function BreakpointManager() {
       organism: detail.organism,
       susceptibleMax: Number(form.get("susceptibleMax")),
       resistantMin: Number(form.get("resistantMin")),
-      intermediateMin: editingRule.intermediateMin,
-      intermediateMax: editingRule.intermediateMax,
+      intermediateMin: optionalNumber(form.get("intermediateMin")),
+      intermediateMax: optionalNumber(form.get("intermediateMax")),
       unit: detail.unit,
       method: detail.method,
       exceptionJson: editingRule.exceptionJson,
@@ -370,10 +397,10 @@ export function BreakpointManager() {
                 <div className="panel-title-row"><h3 id="rules-title">Rules</h3><span>{detail.rules.length}</span></div>
                 <div className="breakpoint-rule-table-wrap">
                   <table className="breakpoint-rule-table">
-                    <thead><tr><th>Drug</th><th>Organism</th><th>S ≤</th><th>R ≥</th><th>Unit</th><th>操作</th></tr></thead>
+                    <thead><tr><th>Drug</th><th>Organism</th><th>S/I/R breakpoint</th><th>Example</th><th>Unit</th><th>操作</th></tr></thead>
                     <tbody>{detail.rules.map((rule) => (
                       <tr key={rule.id}>
-                        <td>{rule.drugName}</td><td>{rule.organism ?? "全菌種"}</td><td>{rule.susceptibleMax}</td><td>{rule.resistantMin}</td><td>{rule.unit}</td>
+                        <td>{rule.drugName}</td><td>{rule.organism ?? "全菌種"}</td><td>{interpretationLabel(rule)}</td><td>{exampleInterpretation(rule)}</td><td>{rule.unit}</td>
                         <td>{isAdmin && detail.status === "DRAFT"
                           ? <span className="rule-row-actions">
                             <button type="button" className="text-button" onClick={() => setEditingRule(rule)}>編集</button>
@@ -389,8 +416,10 @@ export function BreakpointManager() {
                     {editingRule && (
                       <form className="breakpoint-form rule-add-form rule-edit-form" onSubmit={updateRule}>
                         <label>Drug<input name="drugName" defaultValue={editingRule.drugName} required /></label>
-                        <label>S上限<input name="susceptibleMax" type="number" step="any" min="0" defaultValue={editingRule.susceptibleMax} required /></label>
-                        <label>R下限<input name="resistantMin" type="number" step="any" min="0" defaultValue={editingRule.resistantMin} required /></label>
+                        <label>S ≤<input name="susceptibleMax" type="number" step="any" min="0" defaultValue={editingRule.susceptibleMax} required /></label>
+                        <label>I min<input name="intermediateMin" type="number" step="any" min="0" defaultValue={editingRule.intermediateMin ?? ""} placeholder="例: 8" /></label>
+                        <label>I max<input name="intermediateMax" type="number" step="any" min="0" defaultValue={editingRule.intermediateMax ?? ""} placeholder="例: 8" /></label>
+                        <label>R ≥<input name="resistantMin" type="number" step="any" min="0" defaultValue={editingRule.resistantMin} required /></label>
                         <div className="rule-edit-actions">
                           <button type="button" className="secondary-button" onClick={() => setEditingRule(null)}>取消</button>
                           <button className="primary-button" disabled={busy}>rule更新</button>
@@ -398,11 +427,16 @@ export function BreakpointManager() {
                       </form>
                     )}
                     <form className="breakpoint-form rule-add-form" onSubmit={addRule}>
-                      <label>Drug<input name="drugName" required /></label>
-                      <label>S上限<input name="susceptibleMax" type="number" step="any" min="0" required /></label>
-                      <label>R下限<input name="resistantMin" type="number" step="any" min="0" required /></label>
+                      <label>Drug<input name="drugName" required placeholder="Ampicillin" /></label>
+                      <label>S ≤<input name="susceptibleMax" type="number" step="any" min="0" required placeholder="4" /></label>
+                      <label>I min<input name="intermediateMin" type="number" step="any" min="0" placeholder="8" /></label>
+                      <label>I max<input name="intermediateMax" type="number" step="any" min="0" placeholder="8" /></label>
+                      <label>R ≥<input name="resistantMin" type="number" step="any" min="0" required placeholder="16" /></label>
                       <button className="primary-button" disabled={busy}>rule追加</button>
                     </form>
+                    <p className="muted-text breakpoint-input-help">
+                      例: Ampicillin が S≤4 / I=8 / R≥16 の場合は、S ≤ に 4、I min と I max に 8、R ≥ に 16 を入力します。MICが8なら “I” と判定されます。
+                    </p>
                   </>
                 )}
               </section>

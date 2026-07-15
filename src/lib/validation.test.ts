@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createSampleSchema, savePlateSchema } from "./validation";
+import { breakpointRuleSchema, createSampleSchema, savePlateSchema } from "./validation";
 
 describe("sample validation", () => {
   it("accepts an arbitrary 12-point dilution range", () => {
@@ -48,5 +48,20 @@ describe("plate save validation", () => {
       }],
     });
     expect(result.success).toBe(false);
+  });
+});
+
+describe("breakpoint rule validation", () => {
+  it("accepts a user-entered S/I/R breakpoint such as S≤4, I=8, R≥16", () => {
+    const result = breakpointRuleSchema.safeParse({
+      drugName: "Ampicillin",
+      unit: "µg/mL",
+      method: "BROTH_MICRODILUTION",
+      susceptibleMax: 4,
+      intermediateMin: 8,
+      intermediateMax: 8,
+      resistantMin: 16,
+    });
+    expect(result.success).toBe(true);
   });
 });

@@ -13,6 +13,8 @@ export interface BreakpointSnapshot {
   standard: BreakpointStandard;
   version: string;
   susceptibleMax: number;
+  intermediateMin?: number | null;
+  intermediateMax?: number | null;
   resistantMin: number;
   unit?: string;
 }
@@ -38,7 +40,11 @@ export function selectBreakpointRule<T extends BreakpointSnapshot>(rules: T[], s
 function decideExact(value: number, rule: BreakpointSnapshot): SirCategory {
   if (value <= rule.susceptibleMax) return "S";
   if (value >= rule.resistantMin) return "R";
-  return "I";
+  if (rule.intermediateMin == null && rule.intermediateMax == null) return "I";
+  if ((rule.intermediateMin == null || value >= rule.intermediateMin) && (rule.intermediateMax == null || value <= rule.intermediateMax)) {
+    return "I";
+  }
+  return "NOT_DETERMINED";
 }
 
 export function interpretSir(
@@ -92,6 +98,8 @@ export function interpretSir(
         standard: rule.standard,
         version: rule.version,
         susceptibleMax: rule.susceptibleMax,
+        intermediateMin: rule.intermediateMin ?? null,
+        intermediateMax: rule.intermediateMax ?? null,
         resistantMin: rule.resistantMin,
         unit: rule.unit ?? null,
       },

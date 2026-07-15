@@ -30,6 +30,44 @@ describe("versioned S/I/R rule engine", () => {
     expect(formatInterpretation(result.category, "AS_BLANK")).toBe("");
   });
 
+  it("interprets an explicitly entered CLSI S/I/R breakpoint such as Ampicillin ≤4/8/16 as I at MIC 8", () => {
+    const result = interpretSir(8, "=", {
+      drugName: "Ampicillin",
+      organism: "E. coli",
+      standard: "CLSI",
+      version: "local-2026",
+      susceptibleMax: 4,
+      intermediateMin: 8,
+      intermediateMax: 8,
+      resistantMin: 16,
+      unit: "µg/mL",
+    });
+    expect(result.category).toBe("I");
+    expect(result.rationale).toMatchObject({
+      breakpoint: {
+        susceptibleMax: 4,
+        intermediateMin: 8,
+        intermediateMax: 8,
+        resistantMin: 16,
+      },
+    });
+  });
+
+  it("does not label an exact MIC as I when it is outside the explicit intermediate range", () => {
+    const result = interpretSir(6, "=", {
+      drugName: "Ampicillin",
+      organism: "E. coli",
+      standard: "CLSI",
+      version: "local-2026",
+      susceptibleMax: 4,
+      intermediateMin: 8,
+      intermediateMax: 8,
+      resistantMin: 16,
+      unit: "µg/mL",
+    });
+    expect(result.category).toBe("NOT_DETERMINED");
+  });
+
   it("does not guess when a qualified MIC spans categories", () => {
     expect(interpretSir(4, ">", rules[0]).category).toBe("NOT_DETERMINED");
     expect(interpretSir(4, "<=", rules[0]).category).toBe("NOT_DETERMINED");
