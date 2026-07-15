@@ -4,14 +4,22 @@ export const createSampleSchema = z.object({
   sampleCode: z.string().trim().min(1).max(80),
   organism: z.string().trim().max(120).optional(),
   notes: z.string().trim().max(1000).optional(),
+  plateName: z.string().trim().min(1).max(120).optional(),
   drugs: z.array(
     z.object({
-      rowIndex: z.number().int().min(0).max(7).optional(),
+      rowIndex: z.number().int().min(0).max(95).optional(),
       drugName: z.string().trim().min(1).max(120),
       unit: z.string().trim().min(1).max(30),
-      concentrations: z.array(z.number().positive()).length(12),
-    }).strict(),
-  ).min(1).max(8),
+      concentrations: z.array(z.number().positive()).length(12).optional(),
+      wells: z.array(z.object({
+        rowIndex: z.number().int().min(0).max(7),
+        columnIndex: z.number().int().min(0).max(11),
+        concentration: z.number().positive(),
+      }).strict()).min(1).max(96).optional(),
+    }).strict().refine((value) => Boolean(value.concentrations) || Boolean(value.wells), {
+      message: "concentrations or wells is required",
+    }),
+  ).min(1).max(96),
 });
 
 export const createBreakpointSchema = z.object({

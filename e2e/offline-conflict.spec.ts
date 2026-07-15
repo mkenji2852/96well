@@ -1,4 +1,9 @@
-import { expect, test } from "@playwright/test";
+﻿import { expect, test } from "@playwright/test";
+
+async function dragAssignA1ToA12(page: import("@playwright/test").Page) {
+  await page.locator(".layout-grid-head.row-label").first().click();
+  await page.locator(".assignment-actions .primary-button").click();
+}
 
 function makePlate() {
   return {
@@ -51,6 +56,7 @@ test("mobile plate save shows revision conflict and safe merge controls", async 
     const body = route.request().postDataJSON();
     expect(body.drugs[0].rowIndex).toBe(0);
     expect(body.drugs[0].drugName).toBe("Drug X");
+    expect(body.drugs[0].wells).toHaveLength(12);
     await route.fulfill({
       status: 201,
       contentType: "application/json",
@@ -81,10 +87,13 @@ test("mobile plate save shows revision conflict and safe merge controls", async 
   });
 
   await page.goto("/");
+  await page.getByRole("button", { name: "プレート作成" }).first().click();
+  await page.getByLabel("薬剤名").first().fill("Drug X");
+  await dragAssignA1ToA12(page);
+  await page.getByRole("button", { name: "プレート設定を保存" }).click();
+
   await page.getByLabel("Sample-ID").fill("S-409");
   await page.getByPlaceholder("Escherichia coli").fill("E. coli");
-  await page.getByRole("button", { name: "薬剤配置へ" }).click();
-  await page.getByLabel("薬剤名").first().fill("Drug X");
   await page.getByRole("button", { name: "プレート入力へ" }).click();
 
   for (const row of ["A", "B", "C", "D", "E", "F", "G", "H"]) {

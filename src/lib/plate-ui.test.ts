@@ -24,12 +24,12 @@ describe("applyStateToRow", () => {
 });
 
 describe("applyGrowthToLowerConcentrations", () => {
-  it("marks only lower-concentration wells in the same row as growth", () => {
+  it("marks lower-concentration wells as growth and selected/higher wells as no growth", () => {
     const initial = createEmptyPlate();
     const next = applyGrowthToLowerConcentrations(initial, 2, 4);
 
     for (let columnIndex = 0; columnIndex <= 4; columnIndex += 1) {
-      expect(next[wellKey(2, columnIndex)]).toBe("EMPTY");
+      expect(next[wellKey(2, columnIndex)]).toBe("NO_GROWTH");
     }
     for (let columnIndex = 5; columnIndex < 12; columnIndex += 1) {
       expect(next[wellKey(2, columnIndex)]).toBe("GROWTH");

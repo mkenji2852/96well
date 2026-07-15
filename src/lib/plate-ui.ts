@@ -63,6 +63,9 @@ export function applyGrowthToLowerConcentrations(
   columnIndex: number,
 ): PlateStateMap {
   const next = { ...states };
+  for (let nextColumnIndex = 0; nextColumnIndex <= columnIndex; nextColumnIndex += 1) {
+    next[wellKey(rowIndex, nextColumnIndex)] = "NO_GROWTH";
+  }
   for (let nextColumnIndex = columnIndex + 1; nextColumnIndex < PLATE_COLUMNS; nextColumnIndex += 1) {
     next[wellKey(rowIndex, nextColumnIndex)] = "GROWTH";
   }
