@@ -24,7 +24,9 @@ describe("PostgreSQL release safety files", () => {
   it("documents least-privilege application role restrictions", () => {
     const rolesSql = readFileSync("prisma/postgresql/hardening/roles.sql", "utf8");
     expect(rolesSql).toContain("REVOKE DELETE, TRUNCATE, REFERENCES, TRIGGER");
-    expect(rolesSql).toContain('GRANT DELETE ON "BreakpointRule"');
+    expect(rolesSql).toContain('GRANT DELETE ON');
+    expect(rolesSql).toContain('"Sample", "Plate", "PlateDrug", "PlateWell"');
+    expect(rolesSql).toContain('"IdempotencyRecord", "BreakpointRule"');
     expect(rolesSql).not.toContain("PASSWORD '");
   });
 });

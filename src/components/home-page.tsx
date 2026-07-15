@@ -12,7 +12,7 @@ type Stage = "sample" | "layout" | "settings" | "imageBatch";
 type LayoutMode = "sample" | "template";
 
 interface ApiErrorPayload {
-  error?: string | { code?: string; message?: string };
+  error?: string | { code?: string; message?: string; stage?: string };
 }
 
 interface SampleListItem {
@@ -39,6 +39,11 @@ interface PlateTemplate {
 interface LocalSettings {
   organisms: string[];
   breakpointSets: string[];
+}
+
+interface SampleDeleteResponse {
+  deletedSampleId?: string;
+  deleteSummary?: Record<string, number>;
 }
 
 interface ParticipantUser {
@@ -146,7 +151,9 @@ async function readJsonResponse<T>(response: Response): Promise<T> {
 function apiErrorMessage(payload: ApiErrorPayload | null, fallback: string): string {
   if (payload?.error === "SAMPLE_CODE_EXISTS") return "Sample ID already exists.";
   if (typeof payload?.error === "string") return payload.error;
-  if (payload?.error?.message) return payload.error.message;
+  if (payload?.error?.message) {
+    return payload.error.stage ? `${payload.error.message} stopped at: ${payload.error.stage}` : payload.error.message;
+  }
   return fallback;
 }
 
@@ -304,6 +311,7 @@ export default function Home() {
   const [plate, setPlate] = useState<PlateView | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [deleteLogs, setDeleteLogs] = useState<string[]>([]);
   const t = copy[locale];
 
   const selectedSample = useMemo(
@@ -477,10 +485,20 @@ export default function Home() {
     if (!window.confirm(`${code}\n${t.deleteSampleConfirm}`)) return;
     setBusy(true);
     setError("");
+    setDeleteLogs([`削除開始: ${code}`]);
     try {
       const response = await fetch(`/api/samples/${sampleId}`, { method: "DELETE" });
-      const data = await readJsonResponse<{ deletedSampleId?: string } & ApiErrorPayload>(response);
-      if (!response.ok) throw new Error(apiErrorMessage(data, "Sample delete failed"));
+      const data = await readJsonResponse<SampleDeleteResponse & ApiErrorPayload>(response);
+      setDeleteLogs((current) => [...current, `API応答: HTTP ${response.status}`]);
+      if (!response.ok) {
+        const message = apiErrorMessage(data, "Sample delete failed");
+        setDeleteLogs((current) => [
+          ...current,
+          `削除失敗: ${message}`,
+          ...(typeof data.error === "object" && data.error?.stage ? [`停止stage: ${data.error.stage}`] : []),
+        ]);
+        throw new Error(message);
+      }
 
       setSamples((current) => {
         const next = current.filter((sample) => sample.id !== sampleId);
@@ -497,6 +515,16 @@ export default function Home() {
         setPlate(null);
         setStage("sample");
       }
+      const summary = data.deleteSummary ?? {};
+      const summaryText = Object.entries(summary)
+        .filter(([, count]) => count > 0)
+        .map(([key, count]) => `${key}: ${count}`)
+        .join(", ");
+      setDeleteLogs((current) => [
+        ...current,
+        data.deletedSampleId ? `削除完了: ${data.deletedSampleId}` : "削除完了",
+        summaryText ? `削除内訳: ${summaryText}` : "削除内訳: 関連Plateなし",
+      ]);
       setError(t.deleteSampleDone);
     } catch (caught) {
       setError(userFacingError(caught, "Sample delete failed"));
@@ -1177,6 +1205,14 @@ export default function Home() {
         <>
           <p className="safety-note start-safety"><span aria-hidden="true">!</span>{t.safety}</p>
           {error && <p className="error-message start-error" role="alert">{error}</p>}
+          {deleteLogs.length > 0 && (
+            <section className="operation-log" aria-labelledby="sample-delete-log-title">
+              <h2 id="sample-delete-log-title">Sample削除ログ</h2>
+              <ol>
+                {deleteLogs.map((line, index) => <li key={`${index}-${line}`}>{line}</li>)}
+              </ol>
+            </section>
+          )}
         </>
       )}
     </main>

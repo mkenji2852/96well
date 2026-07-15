@@ -69,6 +69,13 @@ describe("DELETE /api/samples/:id", () => {
       params: Promise.resolve({ id: "sample-1" }),
     });
     expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      deletedSampleId: "sample-1",
+      deleteSummary: {
+        plates: 1,
+        assessments: 1,
+      },
+    });
     expect(mocks.accessFindFirst).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: "sample-1", organizationId: "org-a" },
     }));
@@ -79,5 +86,20 @@ describe("DELETE /api/samples/:id", () => {
     expect(mocks.auditCreate).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ action: "SAMPLE_DELETED", actorId: "user-a" }),
     }));
+  });
+
+  it("returns the safe failing stage when delete is blocked by database permissions", async () => {
+    vi.spyOn(console, "error").mockImplementationOnce(() => undefined);
+    mocks.deleteMany.mockRejectedValueOnce(Object.assign(new Error("permission denied for table PlateWell"), { code: "P2010" }));
+    const response = await DELETE(new Request("http://localhost/api/samples/sample-1", { method: "DELETE" }), {
+      params: Promise.resolve({ id: "sample-1" }),
+    });
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "SAMPLE_DELETE_FAILED",
+        stage: "delete-image-review-children",
+      },
+    });
   });
 });

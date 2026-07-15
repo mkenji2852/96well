@@ -7,13 +7,17 @@ import { requirePermission, requireSampleAccess } from "@/lib/rbac";
 type RouteContext = { params: Promise<{ id: string }> };
 
 export async function DELETE(request: Request, { params }: RouteContext) {
+  let deleteStage = "authenticate";
   try {
     const actor = await requireAuthenticatedUser(request);
+    deleteStage = "authorize";
     requirePermission(actor, "sample:delete");
     const { id } = await params;
+    deleteStage = "scope-check";
     await requireSampleAccess(actor, id);
 
     const result = await prisma.$transaction(async (tx) => {
+      deleteStage = "load-sample";
       const sample = await tx.sample.findFirst({
         where: { id, organizationId: actor.organizationId },
         select: {
@@ -33,7 +37,24 @@ export async function DELETE(request: Request, { params }: RouteContext) {
         : [];
       const assessmentIds = assessments.map((assessment) => assessment.id);
 
+      const summary = {
+        plates: plateIds.length,
+        assessments: assessmentIds.length,
+        imageWellOverrides: 0,
+        imageReviews: 0,
+        plateWells: 0,
+        sirInterpretations: 0,
+        rawMics: 0,
+        exportRecords: 0,
+        imagePredictions: 0,
+        imageAssessments: 0,
+        plateDrugs: 0,
+        idempotencyRecords: 0,
+        platesDeleted: 0,
+      };
+
       if (plateIds.length > 0) {
+        deleteStage = "unlink-result-history";
         await tx.sirInterpretation.updateMany({
           where: { plateId: { in: plateIds } },
           data: { supersedesId: null },
@@ -43,20 +64,32 @@ export async function DELETE(request: Request, { params }: RouteContext) {
           data: { supersedesId: null },
         });
         if (assessmentIds.length > 0) {
-          await tx.imageWellOverride.deleteMany({ where: { assessmentId: { in: assessmentIds } } });
-          await tx.imageReview.deleteMany({ where: { assessmentId: { in: assessmentIds } } });
+          deleteStage = "delete-image-review-children";
+          summary.imageWellOverrides = (await tx.imageWellOverride.deleteMany({ where: { assessmentId: { in: assessmentIds } } })).count;
+          summary.imageReviews = (await tx.imageReview.deleteMany({ where: { assessmentId: { in: assessmentIds } } })).count;
         }
-        await tx.plateWell.deleteMany({ where: { plateId: { in: plateIds } } });
-        await tx.sirInterpretation.deleteMany({ where: { plateId: { in: plateIds } } });
-        await tx.rawMic.deleteMany({ where: { plateId: { in: plateIds } } });
-        await tx.exportRecord.deleteMany({ where: { plateId: { in: plateIds } } });
-        await tx.imagePrediction.deleteMany({ where: { plateId: { in: plateIds } } });
-        await tx.imageAssessment.deleteMany({ where: { plateId: { in: plateIds } } });
-        await tx.plateDrug.deleteMany({ where: { plateId: { in: plateIds } } });
-        await tx.idempotencyRecord.deleteMany({ where: { plateId: { in: plateIds } } });
-        await tx.plate.deleteMany({ where: { id: { in: plateIds }, organizationId: actor.organizationId } });
+        deleteStage = "delete-plate-wells";
+        summary.plateWells = (await tx.plateWell.deleteMany({ where: { plateId: { in: plateIds } } })).count;
+        deleteStage = "delete-sir-interpretations";
+        summary.sirInterpretations = (await tx.sirInterpretation.deleteMany({ where: { plateId: { in: plateIds } } })).count;
+        deleteStage = "delete-raw-mics";
+        summary.rawMics = (await tx.rawMic.deleteMany({ where: { plateId: { in: plateIds } } })).count;
+        deleteStage = "delete-export-records";
+        summary.exportRecords = (await tx.exportRecord.deleteMany({ where: { plateId: { in: plateIds } } })).count;
+        deleteStage = "delete-image-predictions";
+        summary.imagePredictions = (await tx.imagePrediction.deleteMany({ where: { plateId: { in: plateIds } } })).count;
+        deleteStage = "delete-image-assessments";
+        summary.imageAssessments = (await tx.imageAssessment.deleteMany({ where: { plateId: { in: plateIds } } })).count;
+        deleteStage = "delete-plate-drugs";
+        summary.plateDrugs = (await tx.plateDrug.deleteMany({ where: { plateId: { in: plateIds } } })).count;
+        deleteStage = "delete-idempotency-records";
+        summary.idempotencyRecords = (await tx.idempotencyRecord.deleteMany({ where: { plateId: { in: plateIds } } })).count;
+        deleteStage = "delete-plates";
+        summary.platesDeleted = (await tx.plate.deleteMany({ where: { id: { in: plateIds }, organizationId: actor.organizationId } })).count;
       }
+      deleteStage = "delete-sample";
       await tx.sample.delete({ where: { id: sample.id } });
+      deleteStage = "write-audit";
       await tx.auditLog.create({
         data: {
           actorId: actor.userId,
@@ -76,7 +109,7 @@ export async function DELETE(request: Request, { params }: RouteContext) {
           },
         },
       });
-      return sample;
+      return { sample, summary };
     });
 
     if (!result) {
@@ -86,13 +119,31 @@ export async function DELETE(request: Request, { params }: RouteContext) {
       );
     }
 
-    return NextResponse.json({ deletedSampleId: result.id });
+    return NextResponse.json({ deletedSampleId: result.sample.id, deleteSummary: result.summary });
   } catch (error) {
     const response = authErrorResponse(error);
     if (response) return response;
-    console.error(error);
+    const errorCode = typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+      ? error.code
+      : "UNKNOWN";
+    console.error(JSON.stringify({
+      level: "error",
+      route: "DELETE /api/samples/[id]",
+      stage: deleteStage,
+      error: {
+        name: error instanceof Error ? error.name : typeof error,
+        code: errorCode,
+        message: error instanceof Error ? error.message : "Sample delete failed",
+      },
+    }));
     return NextResponse.json(
-      { error: { code: "INTERNAL_ERROR", message: "Sampleの削除に失敗しました。" } },
+      {
+        error: {
+          code: "SAMPLE_DELETE_FAILED",
+          message: "Sampleの削除に失敗しました。DB権限または関連データの制約を確認してください。",
+          stage: deleteStage,
+        },
+      },
       { status: 500 },
     );
   }

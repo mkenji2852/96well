@@ -184,6 +184,10 @@ main { min-height: 100vh; padding-bottom: 120px; }
 .layout-well.selected { outline: 3px solid #f6b44b; outline-offset: 1px; background: #fff7e8; }
 .layout-well.assigned.selected { background: #e8fff8; }
 .start-safety, .start-error { width: min(1080px, calc(100% - 32px)); margin: 14px auto 0; }
+.operation-log { width: min(1080px, calc(100% - 32px)); margin: 14px auto 0; padding: 14px 18px; border: 1px solid var(--line); border-radius: 14px; background: #fff; box-shadow: 0 8px 24px rgba(23,50,77,.05); }
+.operation-log h2 { margin: 0 0 8px; font-size: 16px; }
+.operation-log ol { margin: 0; padding-left: 22px; color: var(--muted); line-height: 1.7; }
+.operation-log li::marker { color: var(--teal-dark); font-weight: 900; }
 .form-card { display: grid; grid-template-columns: 76px 1fr; background: var(--paper); border: 1px solid var(--line); border-radius: 20px; box-shadow: var(--shadow); overflow: hidden; }
 .section-number { padding-top: 29px; text-align: center; color: var(--teal); font-size: 13px; font-weight: 900; border-right: 1px solid var(--line); letter-spacing: .08em; }
 .section-body { padding: 28px; }

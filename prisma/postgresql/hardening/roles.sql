@@ -26,7 +26,14 @@ TO :app_user;
 
 -- Avoid unnecessary destructive capabilities in the runtime role.
 REVOKE DELETE, TRUNCATE, REFERENCES, TRIGGER ON ALL TABLES IN SCHEMA public FROM :app_user;
-GRANT DELETE ON "BreakpointRule" TO :app_user;
+-- Runtime DELETE is intentionally narrow. It is required only for explicit user-initiated
+-- research data cleanup paths such as Sample deletion and DRAFT breakpoint rule editing.
+GRANT DELETE ON
+  "Sample", "Plate", "PlateDrug", "PlateWell",
+  "RawMic", "SirInterpretation", "ExportRecord",
+  "ImageAssessment", "ImagePrediction", "ImageReview", "ImageWellOverride",
+  "IdempotencyRecord", "BreakpointRule"
+TO :app_user;
 REVOKE CREATE ON SCHEMA public FROM :app_user;
 
 GRANT SELECT ON
