@@ -27,7 +27,8 @@
     "postgres:baseline-check": "tsx scripts/postgres-baseline-check.ts",
     "postgres:baseline": "tsx scripts/postgres-baseline.ts",
     "postgres:backup-restore-check": "bash scripts/postgres-backup-restore-check.sh",
-    "postgres:runtime-check": "tsx scripts/postgres-runtime-check.ts"
+    "postgres:runtime-check": "tsx scripts/postgres-runtime-check.ts",
+    "preview:invite": "tsx scripts/research-public-invite.ts"
   },
   "dependencies": {
     "@prisma/client": "6.19.0",

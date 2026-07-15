@@ -1,4 +1,5 @@
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
+import { Prisma } from "@prisma/client";
 import { AuthError } from "@/lib/api-auth-error";
 import { prisma } from "@/lib/prisma";
 import {
@@ -32,6 +33,7 @@ interface AuthDependencies {
   verifyToken?: (token: string, configuration: OidcConfiguration) => Promise<VerifiedToken>;
   requireResearchPublicAccess?: (request: Request) => Promise<JWTPayload | null | void>;
   findUserBySubject?: (subject: string) => Promise<AuthenticatedUserRecord | null>;
+  findOrProvisionUserFromAccessInvite?: (payload: JWTPayload) => Promise<AuthenticatedUserRecord | null>;
   findUserById?: (userId: string) => Promise<AuthenticatedUserRecord | null>;
 }
 
@@ -100,6 +102,134 @@ async function findUserById(userId: string): Promise<AuthenticatedUserRecord | n
   });
 }
 
+export function normalizedEmailFromAccessPayload(payload: JWTPayload): string | null {
+  if (typeof payload.email !== "string") return null;
+  const email = payload.email.trim().toLowerCase();
+  if (!email || !email.includes("@")) return null;
+  return email;
+}
+
+function displayNameFromEmail(email: string): string {
+  return email.split("@")[0] || email;
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
+}
+
+async function findOrProvisionUserFromAccessInvite(payload: JWTPayload): Promise<AuthenticatedUserRecord | null> {
+  const subject = payload.sub;
+  const email = normalizedEmailFromAccessPayload(payload);
+  if (!subject || !email) return null;
+
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const existingBySubject = await tx.user.findUnique({
+        where: { externalSubject: subject },
+        select: {
+          id: true,
+          organizationId: true,
+          role: true,
+          active: true,
+          organization: { select: { active: true } },
+        },
+      });
+      if (existingBySubject) return existingBySubject;
+
+      const existingByEmail = await tx.user.findUnique({
+        where: { email },
+        select: { id: true, externalSubject: true },
+      });
+      if (existingByEmail) return null;
+
+      const now = new Date();
+      const invites = await tx.userInvite.findMany({
+        where: {
+          email,
+          active: true,
+          redeemedAt: null,
+          OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+        },
+        select: {
+          id: true,
+          organizationId: true,
+          role: true,
+          organization: { select: { active: true } },
+        },
+        take: 2,
+      });
+      if (invites.length !== 1 || !invites[0].organization.active) return null;
+      const invite = invites[0];
+
+      const created = await tx.user.create({
+        data: {
+          organizationId: invite.organizationId,
+          externalSubject: subject,
+          email,
+          name: displayNameFromEmail(email),
+          role: invite.role,
+          active: true,
+        },
+        select: {
+          id: true,
+          organizationId: true,
+          role: true,
+          active: true,
+          organization: { select: { active: true } },
+        },
+      });
+
+      const redeemed = await tx.userInvite.updateMany({
+        where: {
+          id: invite.id,
+          active: true,
+          redeemedAt: null,
+        },
+        data: {
+          redeemedAt: now,
+          redeemedByUserId: created.id,
+        },
+      });
+      if (redeemed.count !== 1) throw new AuthError("UNAUTHENTICATED", "招待の利用に失敗しました。");
+
+      await tx.auditLog.createMany({
+        data: [
+          {
+            actorId: created.id,
+            actorLabel: created.id,
+            action: "USER_INVITE_REDEEMED",
+            entityType: "UserInvite",
+            entityId: invite.id,
+            afterJson: {
+              organizationId: invite.organizationId,
+              userId: created.id,
+              role: invite.role,
+            },
+          },
+          {
+            actorId: created.id,
+            actorLabel: created.id,
+            action: "USER_AUTO_PROVISIONED",
+            entityType: "User",
+            entityId: created.id,
+            afterJson: {
+              organizationId: invite.organizationId,
+              inviteId: invite.id,
+              role: invite.role,
+            },
+          },
+        ],
+      });
+
+      return created;
+    });
+  } catch (error) {
+    if (error instanceof AuthError) throw error;
+    if (isUniqueConstraintError(error)) return null;
+    throw error;
+  }
+}
+
 function actorFromUser(user: AuthenticatedUserRecord | null, sessionId: string): AuthenticatedActor {
   if (!user || !user.active || !user.organization.active) unauthenticated();
   return {
@@ -154,7 +284,8 @@ export async function requireAuthenticatedUser(
     const subject = accessPayload.sub;
     if (!subject) unauthenticated();
     const user = await (dependencies.findUserBySubject ?? findUserBySubject)(subject);
-    return actorFromUser(user, sessionIdFromAccessPayload(accessPayload, subject));
+    const resolvedUser = user ?? await (dependencies.findOrProvisionUserFromAccessInvite ?? findOrProvisionUserFromAccessInvite)(accessPayload);
+    return actorFromUser(resolvedUser, sessionIdFromAccessPayload(accessPayload, subject));
   }
 
   if (env.NODE_ENV === "production" && !configuration) {

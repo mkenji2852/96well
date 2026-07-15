@@ -56,7 +56,7 @@ export async function inspectRequiredPostgresObjects(prisma: PrismaClient): Prom
     "Organization", "User", "Sample", "Plate", "PlateDrug", "PlateWell",
     "BreakpointSet", "BreakpointRule", "RawMic", "SirInterpretation",
     "ImageAssessment", "ImagePrediction", "ImageReview", "ImageWellOverride",
-    "ExportRecord", "AuditLog", "IdempotencyRecord",
+    "ExportRecord", "AuditLog", "IdempotencyRecord", "UserInvite",
   ];
   const tables = await listTables(prisma);
   for (const table of requiredTables) {
@@ -90,6 +90,9 @@ export async function inspectRequiredPostgresObjects(prisma: PrismaClient): Prom
     "Plate.resultRevision",
     "IdempotencyRecord.key",
     "ExportRecord.metadataJson",
+    "UserInvite.email",
+    "UserInvite.redeemedAt",
+    "UserInvite.redeemedByUserId",
   ];
   for (const column of requiredColumns) {
     findings.push({

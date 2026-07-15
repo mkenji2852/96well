@@ -21,7 +21,7 @@ GRANT SELECT, INSERT, UPDATE ON
   "Organization", "User", "Sample", "Plate", "PlateDrug", "PlateWell",
   "BreakpointSet", "BreakpointRule", "RawMic", "SirInterpretation",
   "ExportRecord", "ImageAssessment", "ImagePrediction", "ImageReview",
-  "ImageWellOverride", "AuditLog", "IdempotencyRecord"
+  "ImageWellOverride", "AuditLog", "IdempotencyRecord", "UserInvite"
 TO :app_user;
 
 -- Avoid unnecessary destructive capabilities in the runtime role.
@@ -40,7 +40,7 @@ GRANT SELECT ON
   "Organization", "Sample", "Plate", "PlateDrug", "PlateWell",
   "BreakpointSet", "BreakpointRule", "RawMic", "SirInterpretation",
   "ExportRecord", "ImageAssessment", "ImagePrediction", "ImageReview",
-  "ImageWellOverride", "AuditLog"
+  "ImageWellOverride", "AuditLog", "UserInvite"
 TO :readonly_user;
 
 -- Migration role owns schema changes. It must not be used by the application runtime.

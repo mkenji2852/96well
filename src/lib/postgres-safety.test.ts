@@ -27,6 +27,15 @@ describe("PostgreSQL release safety files", () => {
     expect(rolesSql).toContain('GRANT DELETE ON');
     expect(rolesSql).toContain('"Sample", "Plate", "PlateDrug", "PlateWell"');
     expect(rolesSql).toContain('"IdempotencyRecord", "BreakpointRule"');
+    expect(rolesSql).toContain('"AuditLog", "IdempotencyRecord", "UserInvite"');
     expect(rolesSql).not.toContain("PASSWORD '");
+  });
+
+  it("adds PostgreSQL invite migration for research-public auto-provisioning", () => {
+    const migration = readFileSync("prisma/postgresql/migrations/0003_user_invites/migration.sql", "utf8");
+    expect(migration).toContain('CREATE TABLE "UserInvite"');
+    expect(migration).toContain('CREATE UNIQUE INDEX "UserInvite_organizationId_email_key"');
+    expect(migration).toContain('"UserInvite_email_lowercase_check"');
+    expect(migration).toContain('"redeemedByUserId"');
   });
 });

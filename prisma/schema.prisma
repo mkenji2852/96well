@@ -97,6 +97,8 @@ model User {
   breakpointSetsCreated BreakpointSet[] @relation("BreakpointSetCreatedBy")
   breakpointSetsApproved BreakpointSet[] @relation("BreakpointSetApprovedBy")
   breakpointSetsRetired BreakpointSet[] @relation("BreakpointSetRetiredBy")
+  userInvitesCreated UserInvite[] @relation("UserInviteCreatedBy")
+  userInvitesRedeemed UserInvite[] @relation("UserInviteRedeemedBy")
 
   @@index([organizationId])
 }
@@ -111,6 +113,28 @@ model Organization {
   plates          Plate[]
   breakpointSets  BreakpointSet[]
   breakpointRules BreakpointRule[]
+  userInvites     UserInvite[]
+}
+
+model UserInvite {
+  id               String       @id @default(cuid())
+  organizationId   String
+  email            String
+  role             Role
+  active           Boolean      @default(true)
+  expiresAt        DateTime?
+  redeemedAt       DateTime?
+  redeemedByUserId String?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  createdByUserId  String?
+  organization     Organization @relation(fields: [organizationId], references: [id])
+  createdBy        User?        @relation("UserInviteCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  redeemedBy       User?        @relation("UserInviteRedeemedBy", fields: [redeemedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, email])
+  @@index([email])
+  @@index([organizationId, active, redeemedAt])
 }
 
 model Sample {
