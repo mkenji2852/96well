@@ -82,6 +82,8 @@ jobs:
         run: |
           psql -h localhost -U postgres -d ast_legacy -v ON_ERROR_STOP=1 -f prisma/postgresql/migrations/0001_initial/migration.sql
           psql -h localhost -U postgres -d ast_legacy -v ON_ERROR_STOP=1 -f prisma/postgresql/migrations/0002_production_hardening/migration.sql
+          psql -h localhost -U postgres -d ast_legacy -v ON_ERROR_STOP=1 -f prisma/postgresql/migrations/0003_user_invites/migration.sql
+          psql -h localhost -U postgres -d ast_legacy -v ON_ERROR_STOP=1 -f prisma/postgresql/migrations/0004_email_password_auth/migration.sql
           psql -h localhost -U postgres -d ast_legacy -v ON_ERROR_STOP=1 -f prisma/postgresql/fixtures/legacy-data.sql
           pnpm postgres:baseline-check
           pnpm postgres:baseline
