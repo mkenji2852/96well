@@ -1,5 +1,6 @@
 import { pathToFileURL } from "node:url";
 import { PrismaClient, type Role } from "@prisma/client";
+import { createSessionToken, hashSessionToken } from "../src/lib/password-auth";
 import { requirePostgresUrl } from "./postgres-utils";
 
 const DEFAULT_ORGANIZATION_NAME = "96well Research Preview";
@@ -80,8 +81,11 @@ async function resolveOrganization(prisma: PrismaClient, options: InviteOptions)
 export async function upsertResearchPublicInvite(
   prisma: PrismaClient,
   options: InviteOptions,
-): Promise<{ inviteId: string; organizationId: string; email: string; role: Role; status: "created" | "updated" }> {
+): Promise<{ inviteId: string; organizationId: string; email: string; role: Role; status: "created" | "updated"; inviteToken: string }> {
   const organizationId = await resolveOrganization(prisma, options);
+  const inviteToken = createSessionToken();
+  const inviteTokenHash = hashSessionToken(inviteToken);
+  const inviteCreatedAt = new Date();
   const existing = await prisma.userInvite.findUnique({
     where: { organizationId_email: { organizationId, email: options.email } },
     select: { id: true, redeemedAt: true },
@@ -100,11 +104,13 @@ export async function upsertResearchPublicInvite(
         role: options.role,
         active: true,
         expiresAt: options.expiresAt,
+        inviteTokenHash,
+        inviteCreatedAt,
         createdByUserId: options.createdByUserId,
       },
       select: { id: true, organizationId: true, email: true, role: true },
     });
-    return { inviteId: updated.id, organizationId: updated.organizationId, email: updated.email, role: updated.role, status: "updated" };
+    return { inviteId: updated.id, organizationId: updated.organizationId, email: updated.email, role: updated.role, status: "updated", inviteToken };
   }
 
   const created = await prisma.userInvite.create({
@@ -114,11 +120,13 @@ export async function upsertResearchPublicInvite(
       role: options.role,
       active: true,
       expiresAt: options.expiresAt,
+      inviteTokenHash,
+      inviteCreatedAt,
       createdByUserId: options.createdByUserId,
     },
     select: { id: true, organizationId: true, email: true, role: true },
   });
-  return { inviteId: created.id, organizationId: created.organizationId, email: created.email, role: created.role, status: "created" };
+  return { inviteId: created.id, organizationId: created.organizationId, email: created.email, role: created.role, status: "created", inviteToken };
 }
 
 export async function runResearchPublicInvite(argv = process.argv.slice(2)): Promise<number> {
@@ -150,6 +158,7 @@ export async function runResearchPublicInvite(argv = process.argv.slice(2)): Pro
         email: invite.email,
         role: invite.role,
         active: true,
+        inviteToken: invite.inviteToken,
       },
       safety: {
         emailNormalized: true,

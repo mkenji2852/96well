@@ -1,6 +1,7 @@
 import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 import { Prisma } from "@prisma/client";
 import { AuthError } from "@/lib/api-auth-error";
+import { PASSWORD_SESSION_COOKIE, hashSessionToken, readCookieValue } from "@/lib/password-auth";
 import { prisma } from "@/lib/prisma";
 import {
   isResearchPublicProduction,
@@ -34,6 +35,7 @@ interface AuthDependencies {
   requireResearchPublicAccess?: (request: Request) => Promise<JWTPayload | null | void>;
   findUserBySubject?: (subject: string) => Promise<AuthenticatedUserRecord | null>;
   findOrProvisionUserFromAccessInvite?: (payload: JWTPayload) => Promise<AuthenticatedUserRecord | null>;
+  findUserByPasswordSession?: (token: string) => Promise<{ user: AuthenticatedUserRecord; sessionId: string } | null>;
   findUserById?: (userId: string) => Promise<AuthenticatedUserRecord | null>;
 }
 
@@ -100,6 +102,33 @@ async function findUserById(userId: string): Promise<AuthenticatedUserRecord | n
       organization: { select: { active: true } },
     },
   });
+}
+
+async function findUserByPasswordSession(token: string): Promise<{ user: AuthenticatedUserRecord; sessionId: string } | null> {
+  const tokenHash = hashSessionToken(token);
+  const session = await prisma.userSession.findUnique({
+    where: { tokenHash },
+    select: {
+      id: true,
+      expiresAt: true,
+      revokedAt: true,
+      user: {
+        select: {
+          id: true,
+          organizationId: true,
+          role: true,
+          active: true,
+          organization: { select: { active: true } },
+        },
+      },
+    },
+  });
+  if (!session || session.revokedAt || session.expiresAt <= new Date()) return null;
+  void prisma.userSession.update({
+    where: { id: session.id },
+    data: { lastSeenAt: new Date() },
+  }).catch(() => undefined);
+  return { user: session.user, sessionId: `password-session:${session.id}` };
 }
 
 export function normalizedEmailFromAccessPayload(payload: JWTPayload): string | null {
@@ -251,6 +280,12 @@ export async function requireAuthenticatedUser(
   dependencies: AuthDependencies = {},
 ): Promise<AuthenticatedActor> {
   const env = dependencies.env ?? process.env;
+  const passwordSessionToken = readCookieValue(request, PASSWORD_SESSION_COOKIE);
+  if (passwordSessionToken) {
+    const session = await (dependencies.findUserByPasswordSession ?? findUserByPasswordSession)(passwordSessionToken);
+    if (session) return actorFromUser(session.user, session.sessionId);
+  }
+
   let accessPayload: JWTPayload | null | void = null;
   try {
     accessPayload = await (dependencies.requireResearchPublicAccess ?? ((currentRequest: Request) =>

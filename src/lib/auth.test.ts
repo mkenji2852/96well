@@ -136,6 +136,48 @@ describe("requireAuthenticatedUser", () => {
     expect(actor).toEqual({ userId: "user-1", organizationId: "org-a", role: "REVIEWER", sessionId: "access-session-1" });
   });
 
+  it("maps a password session cookie to the database user without trusting request role headers", async () => {
+    const request = new Request("https://research.example.test/api/me", {
+      headers: {
+        cookie: "micplate_session=session-token",
+        "x-user-role": "ADMIN",
+        "x-organization-id": "attacker-org",
+      },
+    });
+    const actor = await requireAuthenticatedUser(request, {
+      env: { NODE_ENV: "test" },
+      findUserByPasswordSession: async (token) => {
+        expect(token).toBe("session-token");
+        return {
+          sessionId: "password-session:session-1",
+          user: {
+            id: "user-1",
+            organizationId: "org-a",
+            role: "TECHNICIAN",
+            active: true,
+            organization: { active: true },
+          },
+        };
+      },
+    });
+    expect(actor).toEqual({
+      userId: "user-1",
+      organizationId: "org-a",
+      role: "TECHNICIAN",
+      sessionId: "password-session:session-1",
+    });
+  });
+
+  it("continues to fail closed for an invalid password session cookie", async () => {
+    const request = new Request("https://research.example.test/api/me", {
+      headers: { cookie: "micplate_session=invalid-session" },
+    });
+    await expect(requireAuthenticatedUser(request, {
+      env: { NODE_ENV: "test" },
+      findUserByPasswordSession: async () => null,
+    })).rejects.toMatchObject({ code: "UNAUTHENTICATED" });
+  });
+
   it("fails closed for an unknown Cloudflare Access subject", async () => {
     const request = new Request("https://research.example.test/api/me", {
       headers: { "cf-access-jwt-assertion": "verified-access-token" },

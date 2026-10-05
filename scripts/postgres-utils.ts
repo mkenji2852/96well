@@ -57,6 +57,7 @@ export async function inspectRequiredPostgresObjects(prisma: PrismaClient): Prom
     "BreakpointSet", "BreakpointRule", "RawMic", "SirInterpretation",
     "ImageAssessment", "ImagePrediction", "ImageReview", "ImageWellOverride",
     "ExportRecord", "AuditLog", "IdempotencyRecord", "UserInvite",
+    "PasswordCredential", "UserSession",
   ];
   const tables = await listTables(prisma);
   for (const table of requiredTables) {
@@ -91,8 +92,12 @@ export async function inspectRequiredPostgresObjects(prisma: PrismaClient): Prom
     "IdempotencyRecord.key",
     "ExportRecord.metadataJson",
     "UserInvite.email",
+    "UserInvite.inviteTokenHash",
     "UserInvite.redeemedAt",
     "UserInvite.redeemedByUserId",
+    "PasswordCredential.passwordHash",
+    "UserSession.tokenHash",
+    "UserSession.expiresAt",
   ];
   for (const column of requiredColumns) {
     findings.push({

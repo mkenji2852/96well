@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { PlateEditor } from "@/components/plate-editor";
 import { wellKey, wellName, type DrugWellAssignment } from "@/lib/drug-layout";
@@ -53,7 +53,17 @@ interface ParticipantUser {
   externalSubject: string | null;
   role: "TECHNICIAN" | "REVIEWER" | "ADMIN" | "AUDITOR";
   active: boolean;
+  hasPasswordCredential?: boolean;
   createdAt: string;
+}
+
+interface ParticipantInvite {
+  id: string;
+  email: string;
+  role: ParticipantUser["role"];
+  expiresAt: string | null;
+  inviteToken: string;
+  inviteUrl: string;
 }
 
 interface BatchUploadStatus {
@@ -284,6 +294,16 @@ export default function Home() {
   const [stage, setStage] = useState<Stage>("sample");
   const [layoutMode, setLayoutMode] = useState<LayoutMode>("sample");
   const [samples, setSamples] = useState<SampleListItem[]>([]);
+  const [authRequired, setAuthRequired] = useState(false);
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginBusy, setLoginBusy] = useState(false);
+  const [loginError, setLoginError] = useState("");
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteToken, setInviteToken] = useState("");
+  const [invitePassword, setInvitePassword] = useState("");
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [inviteError, setInviteError] = useState("");
   const [selectedPlateId, setSelectedPlateId] = useState("");
   const [sampleCode, setSampleCode] = useState("");
   const [organism, setOrganism] = useState("");
@@ -300,7 +320,10 @@ export default function Home() {
   const [participantNameDraft, setParticipantNameDraft] = useState("");
   const [participantEmailDraft, setParticipantEmailDraft] = useState("");
   const [participantSubjectDraft, setParticipantSubjectDraft] = useState("");
+  const [participantPasswordDraft, setParticipantPasswordDraft] = useState("");
   const [participantRoleDraft, setParticipantRoleDraft] = useState<ParticipantUser["role"]>("TECHNICIAN");
+  const [participantPasswordResets, setParticipantPasswordResets] = useState<Record<string, string>>({});
+  const [latestParticipantInvite, setLatestParticipantInvite] = useState<ParticipantInvite | null>(null);
   const [imageBatchFiles, setImageBatchFiles] = useState<File[]>([]);
   const [imageBatchStatuses, setImageBatchStatuses] = useState<BatchUploadStatus[]>([]);
   const [drugLayouts, setDrugLayouts] = useState<DrugLayoutDraft[]>(() => createDrugLayouts());
@@ -331,12 +354,41 @@ export default function Home() {
     [imageBatchFiles],
   );
 
+  const loadSamples = useCallback(async () => {
+    const response = await fetch("/api/samples");
+    const data = await readJsonResponse<{ samples: SampleListItem[] } & ApiErrorPayload>(response);
+    if (response.status === 401) {
+      setAuthRequired(true);
+      setSamples([]);
+      setSelectedPlateId("");
+      return;
+    }
+    if (!response.ok) throw new Error(apiErrorMessage(data, "Sample一覧の取得に失敗しました。"));
+    const nextSamples = data.samples ?? [];
+    setAuthRequired(false);
+    setSamples(nextSamples);
+    const firstPlate = nextSamples.flatMap((sample) => sample.plates)[0];
+    setSelectedPlateId((current) => current || firstPlate?.id || "");
+  }, []);
+
   useEffect(() => () => {
     imageBatchPreviews.forEach((preview) => URL.revokeObjectURL(preview.url));
   }, [imageBatchPreviews]);
 
   useEffect(() => {
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get("invite");
+    const email = params.get("email");
+    if (token) {
+      setInviteToken(token);
+      setAuthRequired(true);
+    }
+    if (email) setInviteEmail(email);
   }, []);
 
   useEffect(() => {
@@ -353,17 +405,11 @@ export default function Home() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/samples")
-      .then((response) => readJsonResponse<{ samples: SampleListItem[] } & ApiErrorPayload>(response))
-      .then((data) => {
-        if (cancelled) return;
-        setSamples(data.samples ?? []);
-        const firstPlate = data.samples?.flatMap((sample) => sample.plates)[0];
-        if (firstPlate) setSelectedPlateId(firstPlate.id);
-      })
-      .catch(() => undefined);
+    loadSamples().catch((caught) => {
+      if (!cancelled) setError(userFacingError(caught, "Sample一覧の取得に失敗しました。"));
+    });
     return () => { cancelled = true; };
-  }, []);
+  }, [loadSamples]);
 
   useEffect(() => {
     if (stage !== "settings") return;
@@ -682,10 +728,77 @@ export default function Home() {
     setSettingsBreakpointDraft("");
   };
 
+  const loginWithEmail = async (event: FormEvent) => {
+    event.preventDefault();
+    setLoginError("");
+    setLoginBusy(true);
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: loginEmail.trim(), password: loginPassword }),
+      });
+      const data = await readJsonResponse<ApiErrorPayload & { user?: unknown }>(response);
+      if (!response.ok) throw new Error(apiErrorMessage(data, "ログインに失敗しました。"));
+      setLoginPassword("");
+      setAuthRequired(false);
+      await loadSamples();
+    } catch (caught) {
+      setLoginError(userFacingError(caught, "ログインに失敗しました。"));
+    } finally {
+      setLoginBusy(false);
+    }
+  };
+
+  const redeemInvite = async (event: FormEvent) => {
+    event.preventDefault();
+    setInviteError("");
+    if (invitePassword.length < 10) {
+      setInviteError("パスワードは10文字以上にしてください。");
+      return;
+    }
+    setInviteBusy(true);
+    try {
+      const response = await fetch("/api/auth/invite/redeem", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          email: inviteEmail.trim(),
+          inviteToken: inviteToken.trim(),
+          password: invitePassword,
+        }),
+      });
+      const data = await readJsonResponse<ApiErrorPayload & { user?: unknown }>(response);
+      if (!response.ok) throw new Error(apiErrorMessage(data, "招待登録に失敗しました。"));
+      setInvitePassword("");
+      setInviteToken("");
+      setAuthRequired(false);
+      if (typeof window !== "undefined") window.history.replaceState(null, "", window.location.pathname);
+      await loadSamples();
+    } catch (caught) {
+      setInviteError(userFacingError(caught, "招待登録に失敗しました。"));
+    } finally {
+      setInviteBusy(false);
+    }
+  };
+
+  const logout = async () => {
+    setError("");
+    await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
+    setSamples([]);
+    setSelectedPlateId("");
+    setPlate(null);
+    setAuthRequired(true);
+  };
+
   const createParticipantUser = async () => {
     setParticipantUserError("");
     if (!participantNameDraft.trim() || !participantEmailDraft.trim()) {
       setParticipantUserError("ユーザー名とメールアドレスを入力してください。");
+      return;
+    }
+    if (participantPasswordDraft && participantPasswordDraft.length < 10) {
+      setParticipantUserError("メールログイン用パスワードは10文字以上にしてください。");
       return;
     }
     try {
@@ -696,6 +809,7 @@ export default function Home() {
           name: participantNameDraft.trim(),
           email: participantEmailDraft.trim(),
           externalSubject: participantSubjectDraft.trim() || undefined,
+          password: participantPasswordDraft || undefined,
           role: participantRoleDraft,
           active: true,
         }),
@@ -706,13 +820,45 @@ export default function Home() {
       setParticipantNameDraft("");
       setParticipantEmailDraft("");
       setParticipantSubjectDraft("");
+      setParticipantPasswordDraft("");
       setParticipantRoleDraft("TECHNICIAN");
     } catch (caught) {
       setParticipantUserError(userFacingError(caught, "ユーザー作成に失敗しました。"));
     }
   };
 
-  const updateParticipantUser = async (userId: string, patch: Partial<Pick<ParticipantUser, "role" | "active" | "externalSubject">>) => {
+  const createParticipantInvite = async () => {
+    setParticipantUserError("");
+    setLatestParticipantInvite(null);
+    if (!participantEmailDraft.trim()) {
+      setParticipantUserError("招待するメールアドレスを入力してください。");
+      return;
+    }
+    try {
+      const response = await fetch("/api/user-invites", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          email: participantEmailDraft.trim(),
+          role: participantRoleDraft,
+        }),
+      });
+      const data = await readJsonResponse<{ invite?: ParticipantInvite } & ApiErrorPayload>(response);
+      if (!response.ok || !data.invite) throw new Error(apiErrorMessage(data, "招待作成に失敗しました。"));
+      setLatestParticipantInvite(data.invite);
+      setParticipantEmailDraft("");
+      setParticipantSubjectDraft("");
+      setParticipantPasswordDraft("");
+      setParticipantRoleDraft("TECHNICIAN");
+    } catch (caught) {
+      setParticipantUserError(userFacingError(caught, "招待作成に失敗しました。"));
+    }
+  };
+
+  const updateParticipantUser = async (
+    userId: string,
+    patch: Partial<Pick<ParticipantUser, "role" | "active" | "externalSubject">> & { password?: string },
+  ) => {
     setParticipantUserError("");
     try {
       const response = await fetch(`/api/users/${userId}`, {
@@ -726,6 +872,20 @@ export default function Home() {
     } catch (caught) {
       setParticipantUserError(userFacingError(caught, "ユーザー更新に失敗しました。"));
     }
+  };
+
+  const resetParticipantPassword = async (userId: string) => {
+    const password = participantPasswordResets[userId] ?? "";
+    if (password.length < 10) {
+      setParticipantUserError("新しいパスワードは10文字以上にしてください。");
+      return;
+    }
+    await updateParticipantUser(userId, { password });
+    setParticipantPasswordResets((current) => {
+      const next = { ...current };
+      delete next[userId];
+      return next;
+    });
   };
 
   const uploadImageBatch = async (event: FormEvent) => {
@@ -805,6 +965,11 @@ export default function Home() {
       <header className="app-header">
         <div className="brand-mark" aria-hidden="true"><span /><span /><span /><span /></div>
         <div className="brand-copy"><strong>MIC Plate</strong><small>RECORDER</small></div>
+        {!authRequired && (
+          <button className="language-button" type="button" onClick={logout}>
+            ログアウト
+          </button>
+        )}
         <button className="language-button" onClick={() => setLocale(locale === "ja" ? "en" : "ja")}>
           {locale === "ja" ? "EN" : "日本語"}
         </button>
@@ -820,7 +985,91 @@ export default function Home() {
         {availableOrganisms.map((name) => <option value={name} key={name} />)}
       </datalist>
 
-      {stage === "sample" && (
+      {authRequired && (
+        <section className="start-layout">
+          <form className="form-card start-card" onSubmit={loginWithEmail}>
+            <div className="section-number">AUTH</div>
+            <div className="section-body">
+              <h2>メールログイン</h2>
+              <p className="muted-text">
+                登録済みのメールアカウントでログインします。データ共有範囲は従来通り同じ organization 内です。
+              </p>
+              <div className="field-grid">
+                <label>メールアドレス
+                  <input
+                    autoComplete="email"
+                    required
+                    type="email"
+                    value={loginEmail}
+                    onChange={(event) => setLoginEmail(event.target.value)}
+                    placeholder="user@example.com"
+                  />
+                </label>
+                <label>パスワード
+                  <input
+                    autoComplete="current-password"
+                    required
+                    type="password"
+                    value={loginPassword}
+                    onChange={(event) => setLoginPassword(event.target.value)}
+                    placeholder="10文字以上"
+                  />
+                </label>
+              </div>
+              <button className="primary-button" disabled={loginBusy}>
+                {loginBusy ? "ログイン中…" : "ログイン"}
+              </button>
+              {loginError && <p className="error-message" role="alert">{loginError}</p>}
+            </div>
+          </form>
+
+          <form className="form-card start-card" onSubmit={redeemInvite}>
+            <div className="section-number">INV</div>
+            <div className="section-body">
+              <h2>招待コードで初回登録</h2>
+              <p className="muted-text">
+                管理者から受け取った招待コードでアカウントを作成します。role と organization は招待内容から固定されます。
+              </p>
+              <div className="field-grid">
+                <label>メールアドレス
+                  <input
+                    autoComplete="email"
+                    required
+                    type="email"
+                    value={inviteEmail}
+                    onChange={(event) => setInviteEmail(event.target.value)}
+                    placeholder="user@example.com"
+                  />
+                </label>
+                <label>招待コード
+                  <input
+                    required
+                    value={inviteToken}
+                    onChange={(event) => setInviteToken(event.target.value)}
+                    placeholder="管理者から受け取ったコード"
+                  />
+                </label>
+                <label>新しいパスワード
+                  <input
+                    autoComplete="new-password"
+                    required
+                    type="password"
+                    value={invitePassword}
+                    onChange={(event) => setInvitePassword(event.target.value)}
+                    placeholder="10文字以上"
+                  />
+                </label>
+              </div>
+              <button className="primary-button" disabled={inviteBusy}>
+                {inviteBusy ? "登録中…" : "招待で登録"}
+              </button>
+              {inviteError && <p className="error-message" role="alert">{inviteError}</p>}
+            </div>
+          </form>
+        </section>
+      )}
+
+      {!authRequired && stage === "sample" && (
         <section className="start-layout">
           <section className="form-card start-card primary-start-card">
             <div className="section-number">00</div>
@@ -905,7 +1154,7 @@ export default function Home() {
         </section>
       )}
 
-      {stage === "settings" && (
+      {!authRequired && stage === "settings" && (
         <section className="start-layout">
           <section className="form-card start-card">
             <div className="section-number">SET</div>
@@ -921,28 +1170,51 @@ export default function Home() {
                 <section>
                   <h3>参加ユーザー</h3>
                   <p className="muted-text">
-                    外部公開時は、ここで有効化したユーザーの external subject を認証済みユーザーとして扱います。
-                    role と organization はDBのUser設定を使用します。
+                    参加者は同じ organization 内のデータを共有します。Cloudflare/OIDC subject またはメール＋パスワードでログインできます。
+                    推奨は招待作成です。role と organization は招待またはDBのUser設定を使用します。
                   </p>
                   <div className="participant-form">
                     <input value={participantNameDraft} onChange={(event) => setParticipantNameDraft(event.target.value)} placeholder="表示名" />
                     <input value={participantEmailDraft} onChange={(event) => setParticipantEmailDraft(event.target.value)} placeholder="email@example.test" />
                     <input value={participantSubjectDraft} onChange={(event) => setParticipantSubjectDraft(event.target.value)} placeholder="Cloudflare/OIDC subject（任意）" />
+                    <input
+                      autoComplete="new-password"
+                      type="password"
+                      value={participantPasswordDraft}
+                      onChange={(event) => setParticipantPasswordDraft(event.target.value)}
+                      placeholder="メールログイン用パスワード（任意・10文字以上）"
+                    />
                     <select value={participantRoleDraft} onChange={(event) => setParticipantRoleDraft(event.target.value as ParticipantUser["role"])}>
                       <option value="TECHNICIAN">TECHNICIAN</option>
                       <option value="REVIEWER">REVIEWER</option>
                       <option value="ADMIN">ADMIN</option>
                       <option value="AUDITOR">AUDITOR</option>
                     </select>
-                    <button type="button" className="secondary-button" onClick={createParticipantUser}>追加</button>
+                    <button type="button" className="primary-button" onClick={createParticipantInvite}>招待作成</button>
+                    <button type="button" className="secondary-button" onClick={createParticipantUser}>直接追加</button>
                   </div>
+                  {latestParticipantInvite && (
+                    <div className="operation-log" aria-live="polite">
+                      <h4>招待を作成しました</h4>
+                      <p><strong>{latestParticipantInvite.email}</strong> / {latestParticipantInvite.role}</p>
+                      <label>招待コード
+                        <input readOnly value={latestParticipantInvite.inviteToken} onFocus={(event) => event.currentTarget.select()} />
+                      </label>
+                      <label>招待URL
+                        <input readOnly value={latestParticipantInvite.inviteUrl} onFocus={(event) => event.currentTarget.select()} />
+                      </label>
+                      <p className="muted-text">このコードは再表示できません。本人へ安全な経路で共有してください。</p>
+                    </div>
+                  )}
                   {participantUserError && <p className="validation-hint" role="alert">{participantUserError}</p>}
                   <ul className="settings-list participant-list">
                     {participantUsers.map((user) => (
                       <li key={user.id}>
                         <span>
                           <strong>{user.name}</strong>
-                          <small>{user.email} / {user.externalSubject ? "subject登録済み" : "subject未設定"}</small>
+                          <small>
+                            {user.email} / {user.externalSubject ? "subject登録済み" : "subject未設定"} / {user.hasPasswordCredential ? "メールログイン可" : "メールログイン未設定"}
+                          </small>
                         </span>
                         <select value={user.role} onChange={(event) => updateParticipantUser(user.id, { role: event.target.value as ParticipantUser["role"] })}>
                           <option value="TECHNICIAN">TECHNICIAN</option>
@@ -956,6 +1228,20 @@ export default function Home() {
                           onClick={() => updateParticipantUser(user.id, { active: !user.active })}
                         >
                           {user.active ? "無効化" : "有効化"}
+                        </button>
+                        <input
+                          autoComplete="new-password"
+                          type="password"
+                          value={participantPasswordResets[user.id] ?? ""}
+                          onChange={(event) => setParticipantPasswordResets((current) => ({ ...current, [user.id]: event.target.value }))}
+                          placeholder="新パスワード"
+                        />
+                        <button
+                          type="button"
+                          className="secondary-button"
+                          onClick={() => resetParticipantPassword(user.id)}
+                        >
+                          パスワード設定/リセット
                         </button>
                       </li>
                     ))}
@@ -1012,7 +1298,7 @@ export default function Home() {
         </section>
       )}
 
-      {stage === "imageBatch" && (
+      {!authRequired && stage === "imageBatch" && (
         <form className="form-shell" onSubmit={uploadImageBatch}>
           <section className="form-card">
             <div className="section-number">IMG</div>
@@ -1063,7 +1349,7 @@ export default function Home() {
         </form>
       )}
 
-      {stage === "layout" && (
+      {!authRequired && stage === "layout" && (
         <form className="form-shell" onSubmit={(event) => {
           if (layoutMode === "template") {
             event.preventDefault();
@@ -1201,7 +1487,7 @@ export default function Home() {
         </form>
       )}
 
-      {stage === "sample" && (
+      {!authRequired && stage === "sample" && (
         <>
           <p className="safety-note start-safety"><span aria-hidden="true">!</span>{t.safety}</p>
           {error && <p className="error-message start-error" role="alert">{error}</p>}

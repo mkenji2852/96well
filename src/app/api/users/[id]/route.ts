@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { authErrorResponse } from "@/lib/api-auth-error";
 import { requireAuthenticatedUser } from "@/lib/auth";
+import { hashPassword } from "@/lib/password-auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { updateUserSchema } from "@/lib/validation";
@@ -15,8 +16,18 @@ function serializeUser(user: {
   role: string;
   active: boolean;
   createdAt: Date;
+  passwordCredential?: { id: string } | null;
 }) {
-  return { ...user, createdAt: user.createdAt.toISOString() };
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    externalSubject: user.externalSubject,
+    role: user.role,
+    active: user.active,
+    hasPasswordCredential: Boolean(user.passwordCredential),
+    createdAt: user.createdAt.toISOString(),
+  };
 }
 
 export async function PATCH(request: Request, { params }: RouteContext) {
@@ -55,6 +66,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
           role: true,
           active: true,
           createdAt: true,
+          passwordCredential: { select: { id: true } },
         },
       });
       if (!before) return null;
@@ -63,7 +75,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
         where: { id },
         data: {
           ...(parsed.data.name !== undefined ? { name: parsed.data.name } : {}),
-          ...(parsed.data.email !== undefined ? { email: parsed.data.email } : {}),
+          ...(parsed.data.email !== undefined ? { email: parsed.data.email.toLowerCase() } : {}),
           ...(parsed.data.externalSubject !== undefined
             ? { externalSubject: parsed.data.externalSubject?.trim() || null }
             : {}),
@@ -78,8 +90,18 @@ export async function PATCH(request: Request, { params }: RouteContext) {
           role: true,
           active: true,
           createdAt: true,
+          passwordCredential: { select: { id: true } },
         },
       });
+      if (parsed.data.password !== undefined) {
+        const passwordHash = hashPassword(parsed.data.password);
+        await tx.passwordCredential.upsert({
+          where: { userId: id },
+          create: { userId: id, passwordHash },
+          update: { passwordHash, passwordUpdatedAt: new Date() },
+        });
+        await tx.userSession.updateMany({ where: { userId: id, revokedAt: null }, data: { revokedAt: new Date() } });
+      }
       await tx.auditLog.create({
         data: {
           actorId: actor.userId,
@@ -99,11 +121,15 @@ export async function PATCH(request: Request, { params }: RouteContext) {
             role: updated.role,
             active: updated.active,
             hasExternalSubject: Boolean(updated.externalSubject),
+            passwordCredentialChanged: parsed.data.password !== undefined,
             sessionId: actor.sessionId,
           },
         },
       });
-      return updated;
+      return {
+        ...updated,
+        passwordCredential: parsed.data.password !== undefined ? { id: "updated" } : updated.passwordCredential,
+      };
     });
 
     if (!result) {

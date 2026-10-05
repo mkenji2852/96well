@@ -42,6 +42,7 @@ export const createUserSchema = z.object({
   name: z.string().trim().min(1).max(120),
   email: z.string().trim().email().max(200),
   externalSubject: optionalTrimmedText(300),
+  password: z.string().min(10).max(200).optional(),
   role: userRoleSchema.default("TECHNICIAN"),
   active: z.boolean().default(true),
 }).strict();
@@ -50,8 +51,26 @@ export const updateUserSchema = z.object({
   name: optionalTrimmedText(120),
   email: z.string().trim().email().max(200).optional(),
   externalSubject: z.string().trim().max(300).nullable().optional(),
+  password: z.string().min(10).max(200).optional(),
   role: userRoleSchema.optional(),
   active: z.boolean().optional(),
+}).strict();
+
+export const loginSchema = z.object({
+  email: z.string().trim().email().max(200),
+  password: z.string().min(1).max(200),
+}).strict();
+
+export const createInviteSchema = z.object({
+  email: z.string().trim().email().max(200),
+  role: userRoleSchema.default("TECHNICIAN"),
+  expiresAt: z.string().datetime({ offset: true }).nullable().optional(),
+}).strict();
+
+export const redeemInviteSchema = z.object({
+  email: z.string().trim().email().max(200),
+  inviteToken: z.string().trim().min(16).max(300),
+  password: z.string().min(10).max(200),
 }).strict();
 
 const nullableDateSchema = z.string().datetime({ offset: true }).nullable().optional();

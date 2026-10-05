@@ -28,6 +28,7 @@ describe("PostgreSQL release safety files", () => {
     expect(rolesSql).toContain('"Sample", "Plate", "PlateDrug", "PlateWell"');
     expect(rolesSql).toContain('"IdempotencyRecord", "BreakpointRule"');
     expect(rolesSql).toContain('"AuditLog", "IdempotencyRecord", "UserInvite"');
+    expect(rolesSql).toContain('"PasswordCredential", "UserSession"');
     expect(rolesSql).not.toContain("PASSWORD '");
   });
 
@@ -37,5 +38,13 @@ describe("PostgreSQL release safety files", () => {
     expect(migration).toContain('CREATE UNIQUE INDEX "UserInvite_organizationId_email_key"');
     expect(migration).toContain('"UserInvite_email_lowercase_check"');
     expect(migration).toContain('"redeemedByUserId"');
+  });
+
+  it("adds PostgreSQL email/password invite authentication objects", () => {
+    const migration = readFileSync("prisma/postgresql/migrations/0004_email_password_auth/migration.sql", "utf8");
+    expect(migration).toContain('ALTER TABLE "UserInvite" ADD COLUMN "inviteTokenHash"');
+    expect(migration).toContain('CREATE UNIQUE INDEX "UserInvite_inviteTokenHash_key"');
+    expect(migration).toContain('CREATE TABLE "PasswordCredential"');
+    expect(migration).toContain('CREATE TABLE "UserSession"');
   });
 });

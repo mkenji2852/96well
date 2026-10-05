@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { authErrorResponse } from "@/lib/api-auth-error";
 import { requireAuthenticatedUser } from "@/lib/auth";
+import { hashPassword } from "@/lib/password-auth";
 import { prisma } from "@/lib/prisma";
 import { requirePermission } from "@/lib/rbac";
 import { createUserSchema } from "@/lib/validation";
@@ -13,9 +14,16 @@ function serializeUser(user: {
   role: string;
   active: boolean;
   createdAt: Date;
+  passwordCredential?: { id: string } | null;
 }) {
   return {
-    ...user,
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    externalSubject: user.externalSubject,
+    role: user.role,
+    active: user.active,
+    hasPasswordCredential: Boolean(user.passwordCredential),
     createdAt: user.createdAt.toISOString(),
   };
 }
@@ -35,6 +43,7 @@ export async function GET(request: Request) {
         role: true,
         active: true,
         createdAt: true,
+        passwordCredential: { select: { id: true } },
       },
       take: 250,
     });
@@ -67,7 +76,7 @@ export async function POST(request: Request) {
         data: {
           organizationId: actor.organizationId,
           name: parsed.data.name,
-          email: parsed.data.email,
+          email: parsed.data.email.toLowerCase(),
           externalSubject: parsed.data.externalSubject?.trim() || null,
           role: parsed.data.role,
           active: parsed.data.active,
@@ -80,8 +89,17 @@ export async function POST(request: Request) {
           role: true,
           active: true,
           createdAt: true,
+          passwordCredential: { select: { id: true } },
         },
       });
+      if (parsed.data.password) {
+        await tx.passwordCredential.create({
+          data: {
+            userId: created.id,
+            passwordHash: hashPassword(parsed.data.password),
+          },
+        });
+      }
       await tx.auditLog.create({
         data: {
           actorId: actor.userId,
@@ -96,11 +114,15 @@ export async function POST(request: Request) {
             role: created.role,
             active: created.active,
             hasExternalSubject: Boolean(created.externalSubject),
+            hasPasswordCredential: Boolean(parsed.data.password),
             sessionId: actor.sessionId,
           },
         },
       });
-      return created;
+      return {
+        ...created,
+        passwordCredential: parsed.data.password ? { id: "created" } : null,
+      };
     });
     return NextResponse.json({ user: serializeUser(user) }, { status: 201 });
   } catch (error) {
