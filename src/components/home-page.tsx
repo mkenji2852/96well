@@ -1155,7 +1155,7 @@ export default function Home() {
       )}
 
       {!authRequired && stage === "settings" && (
-        <section className="start-layout">
+        <section className="start-layout settings-layout">
           <section className="form-card start-card">
             <div className="section-number">SET</div>
             <div className="section-body">
