@@ -172,6 +172,26 @@ function workbookText(workbook: ExcelJS.Workbook): string {
 }
 
 describe("buildPlateWorkbook privacy profiles", () => {
+  it("labels cross-organism research interpretation without exporting its free-text reason", async () => {
+    const original = plate();
+    const current = original.rawMics[0];
+    const buffer = await buildPlateWorkbook({
+      metadata: metadata("ANONYMIZED"), auditLogs: [],
+      plate: { ...original, rawMics: [{ ...current, interpretations: current.interpretations.map(item => ({
+        ...item, rationaleJson: { application: {
+          mode: "RESEARCH_CROSS_ORGANISM", breakpointOrganism: "Staphylococcus aureus",
+          sampleOrganism: "E. coli", reason: "private-research-reason",
+        } },
+      })) }] },
+    });
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer);
+    const text = workbookText(workbook);
+    expect(text).toContain("Breakpoint Organism");
+    expect(text).toContain("Staphylococcus aureus");
+    expect(text).toContain("RESEARCH ONLY: cross-organism application");
+    expect(text).not.toContain("private-research-reason");
+  });
   it("defaults unknown profile input to ANONYMIZED", () => {
     expect(parseExportProfile(null)).toBe("ANONYMIZED");
     expect(parseExportProfile("CLINICAL_INTERNAL")).toBe("CLINICAL_INTERNAL");

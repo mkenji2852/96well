@@ -331,6 +331,7 @@ export function PlateEditor({
   const [breakpointSets, setBreakpointSets] = useState<BreakpointSetView[]>([]);
   const [selectedBreakpointSetId, setSelectedBreakpointSetId] = useState(plate.lastBreakpointSetId ?? "");
   const [breakpointChangeReason, setBreakpointChangeReason] = useState("");
+  const [allowOrganismMismatch, setAllowOrganismMismatch] = useState(false);
   const [imageUploadBusy, setImageUploadBusy] = useState(false);
   const [imageUploadError, setImageUploadError] = useState("");
   const [imageUploadResult, setImageUploadResult] = useState<ImageUploadResponse | null>(null);
@@ -351,12 +352,14 @@ export function PlateEditor({
     () => breakpointSets.find((set) => set.id === selectedBreakpointSetId) ?? plate.selectedBreakpointSet ?? null,
     [breakpointSets, plate.selectedBreakpointSet, selectedBreakpointSetId],
   );
+  const organismMismatch = Boolean(selectedBreakpointSet?.organism && selectedBreakpointSet.organism !== plate.sample.organism);
 
   const buildPayload = (states: PlateStateMap, revision = serverRevision): SavePlateRequest => ({
     expectedRevision: revision,
     wells: statesToWellInputs(states),
     breakpointSetId: selectedBreakpointSetId || undefined,
-    breakpointChangeReason: selectedBreakpointSetId && plate.lastBreakpointSetId && selectedBreakpointSetId !== plate.lastBreakpointSetId
+    allowOrganismMismatch: organismMismatch && allowOrganismMismatch,
+    breakpointChangeReason: organismMismatch || (selectedBreakpointSetId && plate.lastBreakpointSetId && selectedBreakpointSetId !== plate.lastBreakpointSetId)
       ? breakpointChangeReason.trim() || undefined
       : undefined,
   });
@@ -625,6 +628,10 @@ export function PlateEditor({
     }
     if (selectedBreakpointSetId && plate.lastBreakpointSetId && selectedBreakpointSetId !== plate.lastBreakpointSetId && !breakpointChangeReason.trim()) {
       setErrors(["BreakpointSetを変更する場合は理由を入力してください。"]);
+      return;
+    }
+    if (organismMismatch && (!allowOrganismMismatch || !breakpointChangeReason.trim())) {
+      setErrors(["異なる菌種のBreakpointを研究用に適用する確認と理由が必要です。"]);
       return;
     }
 
@@ -935,6 +942,7 @@ export function PlateEditor({
           <p>
             承認済みBreakpointSetを選択すると、保存時にMICからS/I/Rを計算します。
             未選択ならBreakpointなしで保存します。
+            菌種が異なるセットも、確認と理由を記録して研究用に任意適用できます。
           </p>
           <p className="muted-text">例: Ampicillin S≤4 / I=8 / R≥16 のruleなら、MIC=8は I と表示されます。</p>
         </div>
@@ -943,7 +951,11 @@ export function PlateEditor({
             <span>使用するBreakpointSet</span>
             <select
               value={selectedBreakpointSetId}
-              onChange={(event) => setSelectedBreakpointSetId(event.target.value)}
+              onChange={(event) => {
+                setSelectedBreakpointSetId(event.target.value);
+                setAllowOrganismMismatch(false);
+                setBreakpointChangeReason("");
+              }}
               disabled={saving}
             >
               <option value="">判定しない</option>
@@ -954,15 +966,22 @@ export function PlateEditor({
               ))}
             </select>
           </label>
-          {selectedBreakpointSetId && plate.lastBreakpointSetId && selectedBreakpointSetId !== plate.lastBreakpointSetId && (
+          {organismMismatch && <div className="breakpoint-retired-note" role="note">
+            <p>Sample菌種: {plate.sample.organism || "未設定"} ／ Breakpoint対象菌種: {selectedBreakpointSet?.organism}</p>
             <label>
-              <span>BreakpointSet変更理由</span>
+              <input type="checkbox" checked={allowOrganismMismatch} disabled={saving} onChange={(event) => setAllowOrganismMismatch(event.target.checked)} />
+              異なる菌種のBreakpointを研究用に任意適用する（臨床判定には使用しない）
+            </label>
+          </div>}
+          {(organismMismatch || (selectedBreakpointSetId && plate.lastBreakpointSetId && selectedBreakpointSetId !== plate.lastBreakpointSetId)) && (
+            <label>
+              <span>{organismMismatch ? "任意適用理由" : "BreakpointSet変更理由"}</span>
               <textarea
                 rows={2}
                 value={breakpointChangeReason}
                 onChange={(event) => setBreakpointChangeReason(event.target.value)}
                 disabled={saving}
-                placeholder="例: CLSI 2026 local ruleへ更新"
+                placeholder={organismMismatch ? "例: 別菌種の基準による研究比較" : "例: CLSI 2026 local ruleへ更新"}
               />
             </label>
           )}

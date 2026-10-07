@@ -137,6 +137,14 @@ describe("PUT /api/plates/[id] offline sync safety", () => {
     }));
   });
 
+  it("passes acknowledged cross-organism research selection to the calculation engine", async () => {
+    const response = await PUT(request(payload({ allowOrganismMismatch: true, breakpointChangeReason: "Research comparison" })), routeContext);
+    expect(response.status).toBe(200);
+    expect(mocks.recalculatePlateResults).toHaveBeenCalledWith(expect.anything(), "plate-1", expect.anything(), {
+      breakpointSetId: "bps-1", breakpointChangeReason: "Research comparison", allowOrganismMismatch: true,
+    });
+  });
+
   it("returns a conflict payload and does not write wells when the server revision changed", async () => {
     mocks.tx.plate.findFirst.mockResolvedValue(plate(4));
 

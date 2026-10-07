@@ -86,6 +86,7 @@ export interface SavePlateRequest {
   wells: WellInput[];
   breakpointSetId?: string;
   breakpointChangeReason?: string;
+  allowOrganismMismatch?: boolean;
   expectedRevision?: number;
   idempotencyKey?: string;
   breakpointStandard?: BreakpointStandard;

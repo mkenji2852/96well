@@ -84,13 +84,15 @@ test("mobile plate entry supports state, bulk apply, details, validation, and sa
   await page.route("**/api/breakpoint-sets?**", (route) => route.fulfill({
     status: 200,
     contentType: "application/json",
-    body: JSON.stringify({ breakpointSets: [{ id: "bps-1", standard: "CLSI", version: "2026.1", organism: "E. coli", status: "APPROVED", approvedAt: "2026-01-01T00:00:00.000Z", effectiveFrom: null, effectiveTo: null }] }),
+    body: JSON.stringify({ breakpointSets: [{ id: "bps-1", standard: "CLSI", version: "2026.1", organism: "Staphylococcus aureus", status: "APPROVED", approvedAt: "2026-01-01T00:00:00.000Z", effectiveFrom: null, effectiveTo: null }] }),
   }));
   await page.route("**/api/plates/plate-1", async (route) => {
     if (route.request().method() === "PUT") {
       const body = route.request().postDataJSON();
       expect(route.request().headers()["if-match"]).toBe("0");
       expect(body.expectedRevision).toBe(0);
+      expect(body.allowOrganismMismatch).toBe(true);
+      expect(body.breakpointChangeReason).toBe("Research comparison");
       expect(body.idempotencyKey).toEqual(expect.stringContaining("plate-save:org-a:tech-1:plate-1:"));
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ plateId: plate.id, status: "DRAFT", wellRevision: 1, results: [] }) });
     } else {
@@ -153,6 +155,10 @@ test("mobile plate entry supports state, bulk apply, details, validation, and sa
     await page.getByRole("button", { name: `行${row}を発育なしに一括入力` }).click();
   }
   await expect(page.locator(".header-empty-count b")).toHaveText("0");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByText("異なる菌種のBreakpointを研究用に適用する確認と理由が必要です。")).toBeVisible();
+  await page.getByLabel("異なる菌種のBreakpointを研究用に任意適用する", { exact: false }).check();
+  await page.getByLabel("任意適用理由").fill("Research comparison");
 
   await page.getByRole("button", { name: "詳細", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "ウェル詳細" })).toBeVisible();

@@ -166,6 +166,7 @@ export function ImageReviewWorkspace({ enabled = true }: { enabled?: boolean }) 
   const [breakpointSetId, setBreakpointSetId] = useState("");
   const [breakpointSets, setBreakpointSets] = useState<BreakpointSetView[]>([]);
   const [breakpointChangeReason, setBreakpointChangeReason] = useState("");
+  const [allowOrganismMismatch, setAllowOrganismMismatch] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const contentRef = useRef<HTMLDivElement | null>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
@@ -194,11 +195,14 @@ export function ImageReviewWorkspace({ enabled = true }: { enabled?: boolean }) 
     activeAssessment?.plate.lastBreakpointSetId &&
     activeAssessment.plate.lastBreakpointSetId !== breakpointSetId.trim(),
   );
+  const selectedBreakpointSet = breakpointSets.find(set => set.id === breakpointSetId);
+  const organismMismatch = Boolean(selectedBreakpointSet?.organism && selectedBreakpointSet.organism !== activeAssessment?.plate.sample.organism);
   const canApprove = isEditable &&
     allRequiredReviewed &&
     overrideProblems.length === 0 &&
     breakpointSetId.trim().length > 0 &&
-    (!breakpointChanged || breakpointChangeReason.trim().length > 0);
+    (!breakpointChanged || breakpointChangeReason.trim().length > 0) &&
+    (!organismMismatch || (allowOrganismMismatch && breakpointChangeReason.trim().length > 0));
 
   const loadAssessments = useCallback(async () => {
     setLoading(true);
@@ -258,6 +262,7 @@ export function ImageReviewWorkspace({ enabled = true }: { enabled?: boolean }) 
     setConflictSnapshot("");
     setBreakpointSetId(activeAssessment?.plate.lastBreakpointSetId ?? "");
     setBreakpointChangeReason("");
+    setAllowOrganismMismatch(false);
     setRejectReason("");
     setActiveKey(wellKey(0, 0));
   }, [activeAssessment?.id]);
@@ -266,7 +271,6 @@ export function ImageReviewWorkspace({ enabled = true }: { enabled?: boolean }) 
     if (!enabled || !activeAssessment) return;
     let cancelled = false;
     const params = new URLSearchParams({ selectable: "true" });
-    if (activeAssessment.plate.sample.organism) params.set("organism", activeAssessment.plate.sample.organism);
     fetchJson<{ breakpointSets: BreakpointSetView[] }>(`/api/breakpoint-sets?${params.toString()}`)
       .then((data) => {
         if (cancelled) return;
@@ -503,8 +507,9 @@ export function ImageReviewWorkspace({ enabled = true }: { enabled?: boolean }) 
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             breakpointSetId: breakpointSetId.trim(),
-            breakpointChangeReason: activeAssessment.plate.lastBreakpointSetId &&
-              activeAssessment.plate.lastBreakpointSetId !== breakpointSetId.trim()
+            allowOrganismMismatch: organismMismatch && allowOrganismMismatch,
+            breakpointChangeReason: organismMismatch || (activeAssessment.plate.lastBreakpointSetId &&
+              activeAssessment.plate.lastBreakpointSetId !== breakpointSetId.trim())
               ? breakpointChangeReason.trim() || undefined
               : undefined,
             confirmedWells: Array.from({ length: PLATE_ROWS }, (_, rowIndex) =>
@@ -821,15 +826,20 @@ export function ImageReviewWorkspace({ enabled = true }: { enabled?: boolean }) 
                 {canReview(user?.role) ? (
                   <section className="review-action-panel" aria-label="承認と差戻し">
                     <label>承認時BreakpointSet
-                      <select value={breakpointSetId} onChange={(event) => setBreakpointSetId(event.target.value)} disabled={!isEditable}>
+                      <select value={breakpointSetId} onChange={(event) => { setBreakpointSetId(event.target.value); setAllowOrganismMismatch(false); setBreakpointChangeReason(""); }} disabled={!isEditable}>
                         <option value="">承認済み版を選択</option>
                         {breakpointSets.map((set) => (
                           <option key={set.id} value={set.id}>{set.standard} {set.version} / {set.organism ?? "全菌種"}</option>
                         ))}
                       </select>
                     </label>
-                    {breakpointChanged && (
-                      <label>BreakpointSet変更理由
+                    {organismMismatch && <label>
+                      <input type="checkbox" checked={allowOrganismMismatch} onChange={event => setAllowOrganismMismatch(event.target.checked)} disabled={!isEditable} />
+                      異なる菌種のBreakpointを研究用に任意適用する（臨床判定には使用しない）
+                    </label>}
+                    {organismMismatch && <p className="validation-hint">Sample菌種: {activeAssessment.plate.sample.organism || "未設定"} ／ Breakpoint対象菌種: {selectedBreakpointSet?.organism}</p>}
+                    {(breakpointChanged || organismMismatch) && (
+                      <label>{organismMismatch ? "任意適用理由" : "BreakpointSet変更理由"}
                         <textarea rows={2} value={breakpointChangeReason} onChange={(event) => setBreakpointChangeReason(event.target.value)} disabled={!isEditable} required />
                       </label>
                     )}

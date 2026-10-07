@@ -191,6 +191,7 @@ export async function POST(request: Request, { params }: RouteContext) {
       const results = await recalculatePlateResults(tx, id, currentActor, {
         breakpointSetId: parsed.data.breakpointSetId,
         breakpointChangeReason: parsed.data.breakpointChangeReason,
+        allowOrganismMismatch: parsed.data.allowOrganismMismatch,
       });
       if (!results) return { kind: "not_found" as const };
       await tx.plate.update({ where: { id }, data: { status: "APPROVED" } });

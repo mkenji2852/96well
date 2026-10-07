@@ -7,12 +7,13 @@ import { interpretSir } from "@/lib/rule-engine";
 import type { BreakpointStandard, MicModifier, RawMicOperator, SirCategory, WellState } from "@/types/domain";
 
 export const MIC_CALCULATION_ENGINE_VERSION = "broth-microdilution-v2" as const;
-export const SIR_RULE_ENGINE_VERSION = "sir-rule-engine-v2" as const;
+export const SIR_RULE_ENGINE_VERSION = "sir-rule-engine-v3" as const;
 
 export type ResultCalculationErrorCode =
   | "BREAKPOINT_SET_REQUIRED"
   | "BREAKPOINT_SET_NOT_AVAILABLE"
   | "BREAKPOINT_SET_ORGANISM_MISMATCH"
+  | "BREAKPOINT_ORGANISM_OVERRIDE_REASON_REQUIRED"
   | "BREAKPOINT_CHANGE_REASON_REQUIRED"
   | "BREAKPOINT_HASH_MISMATCH"
   | "RESULT_RECALCULATION_CONFLICT";
@@ -30,6 +31,7 @@ export class ResultCalculationError extends Error {
 export interface PlateResultSelection {
   breakpointSetId: string;
   breakpointChangeReason?: string;
+  allowOrganismMismatch?: boolean;
 }
 
 export interface PlateResultSummary {
@@ -121,6 +123,7 @@ async function loadActiveBreakpointSet(
   organizationId: string,
   breakpointSetId: string,
   organism: string | null,
+  selection: PlateResultSelection,
 ): Promise<ActiveBreakpointSet> {
   const now = new Date();
   const breakpointSet = await tx.breakpointSet.findFirst({
@@ -139,7 +142,12 @@ async function loadActiveBreakpointSet(
     throw new ResultCalculationError("BREAKPOINT_SET_NOT_AVAILABLE", "指定されたbreakpoint setは利用できません。");
   }
   if (breakpointSet.organism && breakpointSet.organism !== organism) {
-    throw new ResultCalculationError("BREAKPOINT_SET_ORGANISM_MISMATCH", "breakpoint setの対象菌種が一致しません。");
+    if (!selection.allowOrganismMismatch) {
+      throw new ResultCalculationError("BREAKPOINT_SET_ORGANISM_MISMATCH", "対象菌種が異なります。研究用の任意適用を確認してください。");
+    }
+    if (!selection.breakpointChangeReason?.trim()) {
+      throw new ResultCalculationError("BREAKPOINT_ORGANISM_OVERRIDE_REASON_REQUIRED", "対象菌種が異なるBreakpointSetを適用する理由を入力してください。");
+    }
   }
   try {
     assertBreakpointContentHash(breakpointSet);
@@ -210,7 +218,14 @@ export async function recalculatePlateResults(
     );
   }
 
-  const breakpointSet = await loadActiveBreakpointSet(tx, actor.organizationId, breakpointSetId, plate.sample.organism);
+  const breakpointSet = await loadActiveBreakpointSet(tx, actor.organizationId, breakpointSetId, plate.sample.organism, selection);
+  const crossOrganism = Boolean(breakpointSet.organism && breakpointSet.organism !== plate.sample.organism);
+  const application = {
+    mode: crossOrganism ? "RESEARCH_CROSS_ORGANISM" : "MATCHED",
+    sampleOrganism: plate.sample.organism,
+    breakpointOrganism: breakpointSet.organism,
+    reason: crossOrganism ? selection.breakpointChangeReason!.trim() : null,
+  };
   await reservePlateRevision(tx, plate, breakpointSet.id, calculatedAt);
 
   await tx.auditLog.create({
@@ -232,6 +247,7 @@ export async function recalculatePlateResults(
         breakpointSetId: breakpointSet.id,
         standard: breakpointSet.standard,
         version: breakpointSet.version,
+        application,
         reason: selection.breakpointChangeReason?.trim() || null,
         sourceWellRevision: plate.wellRevision,
         timestamp: calculatedAt.toISOString(),
@@ -252,7 +268,7 @@ export async function recalculatePlateResults(
       )?.state ?? "UNREAD",
     ) as WellState[];
     const raw = calculateRawMic(concentrations, states);
-    const breakpointRule = selectRule(breakpointSet, drug.drugName, plate.sample.organism);
+    const breakpointRule = selectRule(breakpointSet, drug.drugName, crossOrganism ? breakpointSet.organism : plate.sample.organism);
     const sir = interpretSir(raw.value, raw.rawMicOperator, breakpointRule ? {
       id: breakpointRule.id,
       drugName: breakpointRule.drugName,
@@ -411,7 +427,7 @@ export async function recalculatePlateResults(
         ruleEngineVersion: SIR_RULE_ENGINE_VERSION,
         status: "CURRENT",
         supersedesId: previousSir?.id ?? null,
-        rationaleJson: inputJson(sir.rationale),
+        rationaleJson: inputJson({ ...sir.rationale, engineVersion: SIR_RULE_ENGINE_VERSION, application }),
         interpretedAt: calculatedAt,
         calculatedAt,
         calculatedByUserId: actor.userId,

@@ -199,6 +199,17 @@ function addTitle(sheet: ExcelJS.Worksheet, title: string): void {
   sheet.getCell("A1").font = { bold: true, size: 16, color: { argb: navy } };
 }
 
+function breakpointApplicationFields(rationale: unknown): string[] {
+  const data = rationale && typeof rationale === "object" ? rationale as Record<string, unknown> : {};
+  const application = data.application && typeof data.application === "object" ? data.application as Record<string, unknown> : {};
+  const breakpoint = data.breakpoint && typeof data.breakpoint === "object" ? data.breakpoint as Record<string, unknown> : {};
+  const organism = application.breakpointOrganism ?? breakpoint.organism;
+  return [
+    safeExcelText(typeof organism === "string" ? organism : ""),
+    application.mode === "RESEARCH_CROSS_ORGANISM" ? "RESEARCH ONLY: cross-organism application" : "",
+  ];
+}
+
 function addSummarySheet(workbook: ExcelJS.Workbook, { plate, metadata }: ExportData): void {
   const sheet = workbook.addWorksheet("Summary");
   configureSheet(sheet);
@@ -229,6 +240,7 @@ function addSummarySheet(workbook: ExcelJS.Workbook, { plate, metadata }: Export
       "Breakpoint Standard", "Breakpoint Version", "MIC Engine", "SIR Engine", "Review Required", "Source Well Revision",
       "RawMic ID", "SirInterpretation ID", "Breakpoint Set ID",
     ];
+  headers.push("Breakpoint Organism", "Research Application");
   sheet.addRow(headers);
   const headerRowNumber = sheet.rowCount;
   styleHeader(sheet.getRow(headerRowNumber));
@@ -253,9 +265,10 @@ function addSummarySheet(workbook: ExcelJS.Workbook, { plate, metadata }: Export
       mic.reviewRequired ? "YES" : "NO",
       mic.sourceWellRevision,
     ];
+    const applicationFields = breakpointApplicationFields(interpretation?.rationaleJson);
     const row = sheet.addRow(metadata.profile === "ANONYMIZED"
-      ? common
-      : [...common, mic.id, interpretation?.id ?? "", mic.breakpointSetId]);
+      ? [...common, ...applicationFields]
+      : [...common, mic.id, interpretation?.id ?? "", mic.breakpointSetId, ...applicationFields]);
     const interpretationCell = row.getCell(metadata.profile === "ANONYMIZED" ? 8 : 7);
     const fills: Record<string, string> = { S: "FFD9EAD3", I: "FFFFF2CC", R: "FFF4CCCC", NO_BREAKPOINT: "FFE7E6E6", "N/A": "FFE7E6E6" };
     const fill = fills[String(interpretationCell.value)];
@@ -290,8 +303,8 @@ function addSummarySheet(workbook: ExcelJS.Workbook, { plate, metadata }: Export
       metadata.snapshot.wellRevision,
     ];
     const row = sheet.addRow(metadata.profile === "ANONYMIZED"
-      ? common
-      : [...common, "", "", ""]);
+      ? [...common, "", ""]
+      : [...common, "", "", "", "", ""]);
     const interpretationCell = row.getCell(metadata.profile === "ANONYMIZED" ? 8 : 7);
     interpretationCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE7E6E6" } };
     interpretationCell.font = { bold: true };
@@ -300,7 +313,7 @@ function addSummarySheet(workbook: ExcelJS.Workbook, { plate, metadata }: Export
   sheet.columns = (metadata.profile === "ANONYMIZED"
     ? [18, 20, 22, 20, 16, 12, 12, 18, 18, 18, 24, 24, 16, 20]
     : [18, 22, 20, 16, 12, 12, 18, 18, 18, 24, 24, 16, 20, 28, 28, 28]
-  ).map((width) => ({ width }));
+  ).concat([24, 42]).map((width) => ({ width }));
   sheet.autoFilter = { from: { row: headerRowNumber, column: 1 }, to: { row: headerRowNumber, column: headers.length } };
 }
 

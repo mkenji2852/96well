@@ -103,6 +103,14 @@ pnpm postgres:schema-check
 
 triggerエラーはテストで判定できるよう、`AST_BREAKPOINT_IMMUTABLE_SET_CONTENT`、`AST_BREAKPOINT_IMMUTABLE_RULE`などの固定messageを返します。
 
+### 研究用の任意Breakpoint適用
+
+プレート画面では、同じ施設の承認済み・有効なBreakpointSetを菌種に関係なく選択できます。
+Sampleの菌種と対象菌種が異なる場合は「異なる菌種のBreakpointを研究用に任意適用する」にチェックし、任意適用理由を入力して保存します。
+例としてE. coliにStaphylococcus aureus用のセットを選択できます。薬剤名が一致するルールの境界値で判定し、該当薬剤がなければNO_BREAKPOINTになります。
+この比較は研究用・非臨床利用に限定します。Sample菌種、Breakpoint対象菌種、理由、使用した版を判定根拠と監査に保存し、Excel Summaryにも対象菌種と研究用の異菌種適用を表示します。
+元のBreakpointSetは変更せず、施設スコープ、承認状態、有効期間、contentHash検証、結果のappend-only履歴は維持します。
+
 ### BreakpointSet contentHash
 
 承認時に以下を保存します。

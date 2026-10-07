@@ -138,6 +138,51 @@ function createTx(options: {
 }
 
 describe("append-only plate result calculation", () => {
+  function crossOrganismFixture() {
+    const fixture = createTx({ breakpointRule: { susceptibleMax: 4, resistantMin: 16 } });
+    fixture.state.breakpointSet.organism = "Staphylococcus aureus";
+    fixture.state.breakpointSet.rules[0].organism = "Staphylococcus aureus";
+    fixture.state.breakpointSet.contentHash = calculateBreakpointContentHash(fixture.state.breakpointSet);
+    fixture.state.plate.wells = finalWells([
+      "INHIBITED", "INHIBITED", "INHIBITED", "INHIBITED", "GROWTH", "GROWTH",
+      "GROWTH", "GROWTH", "GROWTH", "GROWTH", "GROWTH", "GROWTH",
+    ]);
+    return fixture;
+  }
+
+  it("applies a selected Staphylococcus breakpoint to E. coli for acknowledged research use", async () => {
+    const { tx, state } = crossOrganismFixture();
+    const result = await recalculatePlateResults(tx, "plate-1", actor, {
+      breakpointSetId: "bps-1", allowOrganismMismatch: true, breakpointChangeReason: "Research comparison",
+    });
+    expect(result?.[0]).toMatchObject({ value: 8, category: "I" });
+    expect(state.sirs[0].rationaleJson.application).toEqual({
+      mode: "RESEARCH_CROSS_ORGANISM", sampleOrganism: "E. coli",
+      breakpointOrganism: "Staphylococcus aureus", reason: "Research comparison",
+    });
+    expect(state.audits[0].afterJson.application.mode).toBe("RESEARCH_CROSS_ORGANISM");
+    expect(state.breakpointSet.organism).toBe("Staphylococcus aureus");
+  });
+
+  it("requires explicit acknowledgement and a reason before cross-organism application", async () => {
+    const { tx, state } = crossOrganismFixture();
+    await expect(recalculatePlateResults(tx, "plate-1", actor, { breakpointSetId: "bps-1" }))
+      .rejects.toMatchObject({ code: "BREAKPOINT_SET_ORGANISM_MISMATCH" });
+    await expect(recalculatePlateResults(tx, "plate-1", actor, { breakpointSetId: "bps-1", allowOrganismMismatch: true }))
+      .rejects.toMatchObject({ code: "BREAKPOINT_ORGANISM_OVERRIDE_REASON_REQUIRED" });
+    expect(state.rawMics).toHaveLength(0);
+    expect(state.sirs).toHaveLength(0);
+    expect(state.plate.resultRevision).toBe(0);
+  });
+
+  it("still rejects a tampered breakpoint when cross-organism application is acknowledged", async () => {
+    const { tx, state } = crossOrganismFixture();
+    state.breakpointSet.rules[0].susceptibleMax = 99;
+    await expect(recalculatePlateResults(tx, "plate-1", actor, {
+      breakpointSetId: "bps-1", allowOrganismMismatch: true, breakpointChangeReason: "Research comparison",
+    })).rejects.toMatchObject({ code: "BREAKPOINT_HASH_MISMATCH" });
+    expect(state.rawMics).toHaveLength(0);
+  });
   it("creates one CURRENT RawMic/SIR on initial calculation", async () => {
     const { tx, state } = createTx();
     const results = await recalculatePlateResults(tx, "plate-1", actor, { breakpointSetId: "bps-1" });

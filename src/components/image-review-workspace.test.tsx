@@ -71,12 +71,14 @@ function installFetchMock({
   approveStatus = 200,
   rejectStatus = 200,
   approveDelayMs = 0,
+  breakpointOrganism = "E. coli",
 }: {
   role?: UserRole;
   assessment?: ImageReviewAssessmentSummary;
   approveStatus?: number;
   rejectStatus?: number;
   approveDelayMs?: number;
+  breakpointOrganism?: string;
 } = {}) {
   const approveCalls: RequestInit[] = [];
   const rejectCalls: RequestInit[] = [];
@@ -92,7 +94,7 @@ function installFetchMock({
           id: "bps-1",
           standard: "CLSI",
           version: "2026.1",
-          organism: "E. coli",
+          organism: breakpointOrganism,
           unit: "mg/L",
           method: "BROTH_MICRODILUTION",
           status: "APPROVED",
@@ -269,6 +271,25 @@ describe("ImageReviewWorkspace", () => {
     fireEvent.keyDown(dialog, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "ウェル確認" })).not.toBeInTheDocument());
     await waitFor(() => expect(a1).toHaveFocus());
+  });
+
+  it("requires acknowledgement and a reason for cross-organism research approval", async () => {
+    const { approveCalls } = await renderLoaded({ breakpointOrganism: "Staphylococcus aureus" });
+    await screen.findByLabelText("異なる菌種のBreakpointを研究用に任意適用する", { exact: false });
+    const confirm = screen.getByRole("button", { name: "未確認を予測通り確認" });
+    await waitFor(() => expect(confirm).toBeEnabled());
+    fireEvent.click(confirm);
+    const approve = screen.getByRole("button", { name: "承認", exact: true });
+    expect(approve).toBeDisabled();
+    fireEvent.click(screen.getByLabelText("異なる菌種のBreakpointを研究用に任意適用する", { exact: false }));
+    expect(approve).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("任意適用理由"), { target: { value: "Research comparison" } });
+    await waitFor(() => expect(approve).toBeEnabled());
+    fireEvent.click(approve);
+    await waitFor(() => expect(approveCalls).toHaveLength(1));
+    expect(JSON.parse(String(approveCalls[0].body))).toMatchObject({
+      allowOrganismMismatch: true, breakpointChangeReason: "Research comparison",
+    });
   });
 
   it("warns before leaving with unsaved review changes", async () => {

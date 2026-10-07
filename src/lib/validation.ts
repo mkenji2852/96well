@@ -163,6 +163,7 @@ export const savePlateSchema = z.object({
   }),
   breakpointSetId: z.string().trim().max(200).optional(),
   breakpointChangeReason: z.string().trim().min(1).max(1000).optional(),
+  allowOrganismMismatch: z.boolean().optional(),
   expectedRevision: z.number().int().min(0).optional(),
   idempotencyKey: z.string().trim().min(8).max(200).optional(),
   breakpointStandard: z.enum(["CLSI", "EUCAST", "JANIS_COMPAT"]).optional(),
@@ -174,6 +175,7 @@ export const savePlateSchema = z.object({
 export const approveImageAssessmentSchema = z.object({
   breakpointSetId: z.string().trim().min(1).max(200),
   breakpointChangeReason: z.string().trim().min(1).max(1000).optional(),
+  allowOrganismMismatch: z.boolean().optional(),
   confirmedWells: z.array(confirmedWellSchema).length(96).refine(hasUniqueWellCoordinates, {
     message: "96個のウェル確認結果が必要です",
   }),

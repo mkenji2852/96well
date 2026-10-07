@@ -368,6 +368,7 @@ export async function PUT(request: Request, { params }: RouteContext) {
       expectedRevision,
       breakpointSetId: parsed.data.breakpointSetId,
       breakpointChangeReason: parsed.data.breakpointChangeReason ?? null,
+      ...(parsed.data.allowOrganismMismatch ? { allowOrganismMismatch: true } : {}),
       wells: parsed.data.wells,
     });
 
@@ -465,6 +466,7 @@ export async function PUT(request: Request, { params }: RouteContext) {
         ? await recalculatePlateResults(tx, id, currentActor, {
           breakpointSetId: parsed.data.breakpointSetId,
           breakpointChangeReason: parsed.data.breakpointChangeReason,
+          allowOrganismMismatch: parsed.data.allowOrganismMismatch,
         })
         : [];
       if (results === null) return { kind: "not_found" as const };
