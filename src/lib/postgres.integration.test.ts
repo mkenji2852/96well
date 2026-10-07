@@ -244,6 +244,32 @@ describePostgres("PostgreSQL production hardening", () => {
       prisma.$executeRawUnsafe(`UPDATE "BreakpointSet" SET "status" = 'APPROVED' WHERE "id" = 'bps-pg'`),
     ).rejects.toThrow(/AST_BREAKPOINT_RETIRED_FINAL/);
   });
+
+  it("accepts 96 flexible drug slots and still rejects invalid well coordinates", async () => {
+    const org = await prisma.organization.create({ data: { name: "Synthetic layout test" } });
+    const sample = await prisma.sample.create({
+      data: { organizationId: org.id, sampleCode: "SYNTHETIC-96", plates: { create: {
+        organizationId: org.id, name: "Flexible layout",
+        drugs: { createMany: { data: Array.from({ length: 96 }, (_, index) => ({
+          rowIndex: index, drugName: `Synthetic drug ${index}`, unit: "mg/L",
+          concentrations: { mode: "wells", wells: [{ rowIndex: Math.floor(index / 12), columnIndex: index % 12, concentration: 1 }] },
+        })) } },
+      } } },
+      include: { plates: { include: { drugs: true } } },
+    });
+    const plate = sample.plates[0];
+    expect(plate.drugs).toHaveLength(96);
+    await expect(prisma.plateDrug.create({ data: {
+      plateId: plate.id, rowIndex: 96, drugName: "Out of range", concentrations: [],
+    } })).rejects.toThrow();
+    await expect(prisma.plateWell.create({ data: {
+      plateId: plate.id, rowIndex: 8, columnIndex: 0,
+    } })).rejects.toThrow();
+    await expect(prisma.plateWell.create({ data: {
+      plateId: plate.id, rowIndex: 0, columnIndex: 12,
+    } })).rejects.toThrow();
+    expect(await prisma.plateDrug.count({ where: { plateId: plate.id } })).toBe(96);
+  });
 });
 
 describePostgres("PostgreSQL application role", () => {

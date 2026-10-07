@@ -101,15 +101,22 @@ export async function POST(request: Request) {
     }
     const errorCode = typeof error === "object" && error !== null && "code" in error
       && typeof error.code === "string" && /^P\d{4}$/.test(error.code) ? error.code : null;
+    // Inspect only for a known constraint; never expose the underlying DB message.
+    const databaseError = (error as { meta?: { database_error?: unknown } } | null)?.meta?.database_error;
+    const layoutConstraint = typeof databaseError === "string" && databaseError.includes("PlateDrug_row_range_check");
     console.error({
       event: "SAMPLE_CREATION_FAILED", route: "POST /api/samples",
       requestDebugId, stage, errorCode,
+      ...(layoutConstraint ? { constraint: "PlateDrug_row_range_check" } : {}),
     });
-    const message = errorCode === "P2028"
+    const message = layoutConstraint
+      ? "DBの薬剤配置制約が旧形式です。管理者に柔軟な薬剤配置用migrationの適用を依頼してください。"
+      : errorCode === "P2028"
       ? "作成処理が時間内に完了しませんでした。Sample一覧を確認してから再度お試しください。"
       : "Sample／プレートの作成に失敗しました。管理者へ問い合わせ用IDをお伝えください。";
     return NextResponse.json({ error: {
-      code: "INTERNAL_ERROR", message: `${message}（問い合わせ用ID: ${requestDebugId}）`, requestDebugId,
+      code: layoutConstraint ? "PLATE_LAYOUT_DATABASE_OUTDATED" : "INTERNAL_ERROR",
+      message: `${message}（問い合わせ用ID: ${requestDebugId}）`, requestDebugId,
     } }, { status: 500 });
   }
 }

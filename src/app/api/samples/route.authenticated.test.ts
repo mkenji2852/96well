@@ -128,5 +128,18 @@ describe("/api/samples organization authorization", () => {
     expect(response.status).toBe(409);
     expect(await response.json()).toEqual({ error: "SAMPLE_CODE_EXISTS" });
   });
+
+  it("identifies the legacy drug-slot constraint without exposing the database message", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    mocks.sampleCreate.mockRejectedValueOnce({ code: "P2004", meta: {
+      database_error: 'violates check constraint "PlateDrug_row_range_check" secret-data',
+    } });
+    const response = await POST(creationRequest());
+    const body = await response.json();
+    expect(body.error.code).toBe("PLATE_LAYOUT_DATABASE_OUTDATED");
+    expect(body.error.message).toContain("migration");
+    expect(JSON.stringify(body)).not.toContain("secret-data");
+    expect(log).toHaveBeenCalledWith(expect.objectContaining({ constraint: "PlateDrug_row_range_check" }));
+  });
 });
 

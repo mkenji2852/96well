@@ -47,4 +47,13 @@ describe("PostgreSQL release safety files", () => {
     expect(migration).toContain('CREATE TABLE "PasswordCredential"');
     expect(migration).toContain('CREATE TABLE "UserSession"');
   });
+
+  it("updates flexible drug slots atomically without an explicit transaction masking failures", () => {
+    const migration = readFileSync("prisma/postgresql/migrations/0005_flexible_drug_layout/migration.sql", "utf8");
+    expect(migration).toContain("DO $migration$");
+    expect(migration).not.toMatch(/^\s*(?:BEGIN|COMMIT|ROLLBACK)\s*;/m);
+    expect(migration).toContain('ALTER TABLE public."PlateDrug"');
+    expect(migration).toContain('CHECK ("rowIndex" BETWEEN 0 AND 95)');
+    expect(migration).not.toMatch(/DELETE\s+FROM|DROP\s+TABLE|TRUNCATE|DISABLE\s+TRIGGER/i);
+  });
 });

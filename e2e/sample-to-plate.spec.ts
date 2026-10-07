@@ -1,5 +1,37 @@
 ﻿import { expect, test } from "@playwright/test";
 
+test("plate template deletion requires confirmation and persists without deleting samples", async ({ page }) => {
+  let sampleDeleteRequests = 0;
+  await page.route("**/api/me", route => route.fulfill({ status: 401, contentType: "application/json", body: "{}" }));
+  await page.route("**/api/samples", route => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ samples: [] }) }));
+  await page.route("**/api/samples/**", route => {
+    sampleDeleteRequests++;
+    return route.abort();
+  });
+  await page.goto("/");
+  await page.evaluate(() => localStorage.setItem("mic-plate-templates-v1", JSON.stringify([
+    { id: "template-1", name: "Template One", drugs: [], createdAt: "2026-10-07T00:00:00Z" },
+    { id: "template-2", name: "Template Two", drugs: [], createdAt: "2026-10-07T00:00:00Z" },
+  ])));
+  await page.reload();
+  const selector = page.getByLabel("プレート").first();
+  await expect(selector).toHaveValue("template-1");
+  page.once("dialog", dialog => dialog.dismiss());
+  await page.getByRole("button", { name: "選択したテンプレートを削除" }).click();
+  await expect(selector).toHaveValue("template-1");
+  page.once("dialog", dialog => dialog.accept());
+  await page.getByRole("button", { name: "選択したテンプレートを削除" }).click();
+  await expect(selector).toHaveValue("template-2");
+  await page.reload();
+  await expect(selector).toHaveValue("template-2");
+  await expect(selector.locator("option")).toHaveCount(2);
+  page.once("dialog", dialog => dialog.accept());
+  await page.getByRole("button", { name: "選択したテンプレートを削除" }).click();
+  await expect(page.getByRole("button", { name: "プレート入力へ" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "選択したテンプレートを削除" })).toBeDisabled();
+  expect(sampleDeleteRequests).toBe(0);
+});
+
 async function dragAssignA1ToA12(page: import("@playwright/test").Page) {
   await page.locator(".layout-grid-head.row-label").first().click();
   await page.locator(".assignment-actions .primary-button").click();

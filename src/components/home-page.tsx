@@ -698,6 +698,24 @@ export default function Home() {
     setError(locale === "ja" ? "プレート設定を保存しました。" : "Plate template saved.");
   };
 
+  const deletePlateTemplate = () => {
+    if (!selectedTemplate || busy) return;
+    const prompt = locale === "ja"
+      ? `${selectedTemplate.name}\nこのブラウザに保存したプレートテンプレートを削除しますか？作成済みのSample／プレートは削除されません。`
+      : `${selectedTemplate.name}\nDelete this browser's plate template? Existing samples and plates will be kept.`;
+    if (!window.confirm(prompt)) return;
+    const next = plateTemplates.filter((template) => template.id !== selectedTemplate.id);
+    try {
+      savePlateTemplates(next);
+      setPlateTemplates(next);
+      setSelectedTemplateId(next[0]?.id ?? "");
+      setPlateType(next[0]?.name ?? "96-well standard");
+      setError(locale === "ja" ? "プレートテンプレートを削除しました。作成済みのSample／プレートは保持されます。" : "Plate template deleted. Existing samples and plates were kept.");
+    } catch {
+      setError(locale === "ja" ? "テンプレートを削除できませんでした。ブラウザの保存設定を確認してください。" : "Could not delete the template. Check browser storage settings.");
+    }
+  };
+
   const createSampleFromTemplate = async (event: FormEvent) => {
     event.preventDefault();
     setError("");
@@ -1140,6 +1158,9 @@ export default function Home() {
                 <button className="primary-button" disabled={busy || !selectedTemplateId}>プレート入力へ<span aria-hidden="true">→</span></button>
                 <button type="button" className="secondary-button" onClick={startTemplateCreation}>プレート作成</button>
                 <button type="button" className="secondary-button" onClick={startCustomLayout}>薬剤配置を直接編集</button>
+                <button type="button" className="secondary-button" onClick={deletePlateTemplate} disabled={busy || !selectedTemplate}>
+                  {locale === "ja" ? "選択したテンプレートを削除" : "Delete selected template"}
+                </button>
                 <button type="button" className="secondary-button" onClick={() => setStage("imageBatch")}>画像解析へ</button>
                 <button type="button" className="secondary-button" onClick={() => setStage("settings")}>設定</button>
               </div>
