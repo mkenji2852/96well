@@ -1,4 +1,5 @@
 :root {
+  --application-toolbar-height: 84px;
   --ink: #17324d;
   --muted: #5f7181;
   --line: #d6e0e6;
@@ -93,7 +94,15 @@
 
 * { box-sizing: border-box; }
 html { background: var(--canvas); }
-body { margin: 0; color: var(--ink); background: var(--canvas); font-family: Inter, "Noto Sans JP", "Hiragino Kaku Gothic ProN", system-ui, sans-serif; }
+body { margin: 0; padding-top: var(--application-toolbar-height); color: var(--ink); background: var(--canvas); font-family: Inter, "Noto Sans JP", "Hiragino Kaku Gothic ProN", system-ui, sans-serif; }
+.application-toolbar { position: fixed; inset: 0 0 auto; z-index: 40; height: var(--application-toolbar-height); padding: 8px 16px; display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #fff; border-bottom: 1px solid var(--line); box-shadow: 0 2px 8px rgba(23,50,77,.08); }
+.toolbar-home { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; flex-shrink: 0; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--ink); font-weight: 700; text-decoration: none; cursor: pointer; }
+.toolbar-user { min-width: 0; display: grid; gap: 2px; text-align: right; font-size: 12px; }
+.toolbar-user strong, .toolbar-user span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.toolbar-user strong { font-size: 14px; }
+.application-toolbar ~ * .plate-app-header, .application-toolbar ~ * .review-header { top: var(--application-toolbar-height); }
+.operation-status { position: fixed; top: var(--application-toolbar-height); left: 50%; transform: translateX(-50%); z-index: 41; padding: 12px 20px; max-width: calc(100% - 24px); border: 1px solid var(--line); border-radius: 0 0 12px 12px; background: #edf8f6; color: var(--teal-dark); box-shadow: var(--shadow); }
+button:disabled { cursor: wait; }
 button, input, textarea, select { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px solid #f0a46b; outline-offset: 2px; }

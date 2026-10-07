@@ -7,6 +7,7 @@ async function dragAssignA1ToA12(page: import("@playwright/test").Page) {
 }
 
 test("mobile plate entry supports state, bulk apply, details, validation, and save", async ({ page }) => {
+  let plateReadCount = 0;
   const plate = {
     id: "plate-1",
     name: "S-001 Plate 1",
@@ -40,13 +41,13 @@ test("mobile plate entry supports state, bulk apply, details, validation, and sa
     await route.fulfill({
       status: 201,
       contentType: "application/json",
-      body: JSON.stringify({ sample: plate.sample, plate: { id: plate.id } }),
+      body: JSON.stringify({ sample: plate.sample, plate }),
     });
   });
   await page.route("**/api/me", (route) => route.fulfill({
     status: 200,
     contentType: "application/json",
-    body: JSON.stringify({ user: { userId: "tech-1", organizationId: "org-a", role: "TECHNICIAN", sessionId: "session-1" } }),
+    body: JSON.stringify({ user: { userId: "tech-1", name: "Researcher", email: "research@example.test", organizationId: "org-a", role: "TECHNICIAN", sessionId: "session-1" } }),
   }));
   await page.route("**/api/breakpoint-sets?**", (route) => route.fulfill({
     status: 200,
@@ -61,6 +62,7 @@ test("mobile plate entry supports state, bulk apply, details, validation, and sa
       expect(body.idempotencyKey).toEqual(expect.stringContaining("plate-save:org-a:tech-1:plate-1:"));
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ plateId: plate.id, status: "DRAFT", wellRevision: 1, results: [] }) });
     } else {
+      plateReadCount++;
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(plate) });
     }
   });
@@ -78,6 +80,8 @@ test("mobile plate entry supports state, bulk apply, details, validation, and sa
   });
 
   await page.goto("/");
+  await expect(page.getByText("ログイン中: Researcher")).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "共通ツールバー" })).toHaveCSS("position", "fixed");
   await page.getByRole("button", { name: "プレート作成" }).first().click();
   await page.getByLabel("薬剤名").first().fill("Drug X");
   await dragAssignA1ToA12(page);
@@ -88,6 +92,8 @@ test("mobile plate entry supports state, bulk apply, details, validation, and sa
   await page.getByRole("button", { name: "プレート入力へ" }).click();
 
   await expect(page.locator(".ui-well")).toHaveCount(96);
+  expect(plateReadCount).toBe(0);
+  await expect(page.getByRole("button", { name: "初期画面へ戻る" })).toBeVisible();
   await expect(page.locator(".plate-action-bar")).toHaveCSS("position", "fixed");
   await expect(page.locator(".plate-app-header")).toHaveCSS("position", "sticky");
 

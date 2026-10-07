@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { PlateEditor } from "@/components/plate-editor";
+import { useApplicationToolbar } from "@/components/application-toolbar";
 import { wellKey, wellName, type DrugWellAssignment } from "@/lib/drug-layout";
 import { COMMON_ORGANISMS, ORGANISM_DATALIST_ID } from "@/lib/organisms";
 import { ROW_LABELS, type CreateSampleRequest, type DrugConfigInput, type PlateView } from "@/types/domain";
@@ -39,6 +40,11 @@ interface PlateTemplate {
 interface LocalSettings {
   organisms: string[];
   breakpointSets: string[];
+}
+
+interface CreatedSampleResponse extends ApiErrorPayload {
+  sample: PlateView["sample"];
+  plate: Partial<Omit<PlateView, "sample" | "wells">> & { id: string };
 }
 
 interface SampleDeleteResponse {
@@ -335,6 +341,9 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [deleteLogs, setDeleteLogs] = useState<string[]>([]);
+  const returnHome = useCallback(() => { setPlate(null); setStage("sample"); }, []);
+  // The plate editor registers its own action while mounted to protect unsaved wells.
+  const refreshUser = useApplicationToolbar(plate ? undefined : returnHome, busy || loginBusy || inviteBusy);
   const t = copy[locale];
 
   const selectedSample = useMemo(
@@ -527,6 +536,22 @@ export default function Home() {
     }
   };
 
+  const openCreatedPlate = async (data: CreatedSampleResponse) => {
+    const created = data.plate;
+    if (!created.name || !created.status || created.wellRevision === undefined || !created.drugs || !data.sample) {
+      await openPlate(created.id);
+      return;
+    }
+    const view: PlateView = {
+      ...created, name: created.name, status: created.status,
+      wellRevision: created.wellRevision, drugs: created.drugs,
+      sample: data.sample, wells: [], results: [],
+    };
+    setPlate(view);
+    setSamples((current) => [{ ...data.sample, plates: [view] }, ...current]);
+    setSelectedPlateId(created.id);
+  };
+
   const deleteSample = async (sampleId: string, code: string) => {
     if (!window.confirm(`${code}\n${t.deleteSampleConfirm}`)) return;
     setBusy(true);
@@ -627,9 +652,9 @@ export default function Home() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const data = await readJsonResponse<{ plate: { id: string } } & ApiErrorPayload>(response);
+      const data = await readJsonResponse<CreatedSampleResponse>(response);
       if (!response.ok) throw new Error(apiErrorMessage(data, "Create failed"));
-      await openPlate(data.plate.id);
+      await openCreatedPlate(data);
     } catch (caught) {
       setError(userFacingError(caught, "Create failed"));
     } finally {
@@ -700,9 +725,9 @@ export default function Home() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const data = await readJsonResponse<{ plate: { id: string } } & ApiErrorPayload>(response);
+      const data = await readJsonResponse<CreatedSampleResponse>(response);
       if (!response.ok) throw new Error(apiErrorMessage(data, "Create failed"));
-      await openPlate(data.plate.id);
+      await openCreatedPlate(data);
     } catch (caught) {
       setError(userFacingError(caught, "Create failed"));
     } finally {
@@ -742,6 +767,7 @@ export default function Home() {
       if (!response.ok) throw new Error(apiErrorMessage(data, "ログインに失敗しました。"));
       setLoginPassword("");
       setAuthRequired(false);
+      void refreshUser?.();
       await loadSamples();
     } catch (caught) {
       setLoginError(userFacingError(caught, "ログインに失敗しました。"));
@@ -773,6 +799,7 @@ export default function Home() {
       setInvitePassword("");
       setInviteToken("");
       setAuthRequired(false);
+      void refreshUser?.();
       if (typeof window !== "undefined") window.history.replaceState(null, "", window.location.pathname);
       await loadSamples();
     } catch (caught) {
@@ -785,6 +812,7 @@ export default function Home() {
   const logout = async () => {
     setError("");
     await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
+    void refreshUser?.();
     setSamples([]);
     setSelectedPlateId("");
     setPlate(null);
@@ -954,7 +982,7 @@ export default function Home() {
         plate={plate}
         locale={locale}
         onLocaleChange={setLocale}
-        onBack={() => { setPlate(null); setStage("sample"); }}
+        onBack={returnHome}
         onDeleteSample={() => deleteSample(plate.sample.id, plate.sample.sampleCode)}
       />
     );
@@ -962,6 +990,7 @@ export default function Home() {
 
   return (
     <main>
+      {busy && <p className="operation-status" role="status">処理中です。完了までお待ちください…</p>}
       <header className="app-header">
         <div className="brand-mark" aria-hidden="true"><span /><span /><span /><span /></div>
         <div className="brand-copy"><strong>MIC Plate</strong><small>RECORDER</small></div>
@@ -1164,7 +1193,6 @@ export default function Home() {
                   <h2>設定</h2>
                   <p className="muted-text">研究用ローカルで使う菌種候補とBreakpoint候補名を追加できます。</p>
                 </div>
-                <button type="button" className="secondary-button" onClick={() => setStage("sample")}>初期画面へ戻る</button>
               </div>
               <div className="settings-grid">
                 <section>
@@ -1308,7 +1336,6 @@ export default function Home() {
                   <h2>画像解析</h2>
                   <p className="muted-text">複数画像をまとめて添付し、manual reviewへ送ります。解析結果は補助判定です。</p>
                 </div>
-                <button type="button" className="secondary-button" onClick={() => setStage("sample")}>初期画面へ戻る</button>
               </div>
               <div className="field-grid">
                 <label>{t.sampleCode}<input required value={sampleCode} onChange={(event) => setSampleCode(event.target.value)} placeholder="SMP-IMG-001" /></label>
@@ -1366,7 +1393,6 @@ export default function Home() {
                   <h2>{t.layoutTitle}</h2>
                   <p className="muted-text">{sampleCode} / {organism || "organism未設定"} / {plateType}</p>
                 </div>
-                <button type="button" className="secondary-button" onClick={() => setStage("sample")}>{t.backSample}</button>
               </div>
               <p className="safety-note"><span aria-hidden="true">!</span>{t.layoutHelp}</p>
               <div className="field-grid">

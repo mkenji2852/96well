@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useApplicationToolbar } from "@/components/application-toolbar";
 import type { ChangeEvent, FormEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
 import { buildWellDrugDetailMap } from "@/lib/drug-layout";
 import {
@@ -316,6 +317,11 @@ export function PlateEditor({
   const [baseWells, setBaseWells] = useState<WellInput[]>(() => statesToWellInputs(createInitialStates(plate)));
   const [conflictState, setConflictState] = useState<ConflictState | null>(null);
   const [dirty, setDirty] = useState(false);
+  const returnHome = useCallback(() => {
+    if (dirty && !window.confirm("未保存のウェル変更があります。初期画面へ戻りますか？")) return;
+    onBack();
+  }, [dirty, onBack]);
+  useApplicationToolbar(returnHome, saving);
   const [exportProfile, setExportProfile] = useState<ExportProfile>("ANONYMIZED");
   const [includeNotes, setIncludeNotes] = useState(false);
   const [exportReason, setExportReason] = useState("");
@@ -774,7 +780,6 @@ export function PlateEditor({
         <div className="brand-mark" aria-hidden="true"><span /><span /><span /><span /></div>
         <div className="brand-copy"><strong>MIC Plate</strong><small>RECORDER</small></div>
         <div className="header-empty-count" aria-live="polite"><b>{emptyCount}</b><span>{t.remaining}</span></div>
-        <button type="button" className="secondary-button header-back-button" onClick={onBack}>{t.backToSamples}</button>
         {onDeleteSample && (
           <button type="button" className="secondary-button header-delete-button danger-action" onClick={onDeleteSample}>
             {t.deleteSample}

@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { ApplicationToolbar } from "@/components/application-toolbar";
 
 export const metadata: Metadata = {
   title: "MIC Plate Recorder",
@@ -17,7 +18,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="ja">
-      <body>{children}</body>
+      <body><ApplicationToolbar>{children}</ApplicationToolbar></body>
     </html>
   );
 }
