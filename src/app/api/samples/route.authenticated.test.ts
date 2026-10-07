@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
   const actor = { userId: "user-a", organizationId: "org-a", role: "TECHNICIAN" as const, sessionId: "session-a" };
@@ -26,6 +26,7 @@ vi.mock("@/lib/prisma", () => ({
 import { GET, POST } from "./route";
 
 describe("/api/samples organization authorization", () => {
+  afterEach(() => vi.restoreAllMocks());
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.findMany.mockResolvedValue([]);
@@ -65,6 +66,67 @@ describe("/api/samples organization authorization", () => {
     expect(mocks.auditCreate).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ actorId: "user-a", actorLabel: "user-a" }),
     }));
+  });
+
+  function creationRequest() {
+    return new Request("http://localhost/api/samples", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sampleCode: "RESEARCH-001", drugs: Array.from({ length: 96 }, (_, index) => ({
+        drugName: `Drug ${index}`, unit: "mg/L",
+        wells: [{ rowIndex: Math.floor(index / 12), columnIndex: index % 12, concentration: index + 1 }],
+      })) }),
+    });
+  }
+
+  it("creates flexible drug assignments in one batch with an explicit transaction timeout", async () => {
+    const response = await POST(creationRequest());
+    expect(response.status).toBe(201);
+    expect(mocks.sampleCreate).toHaveBeenCalledTimes(1);
+    const create = mocks.sampleCreate.mock.calls[0][0];
+    const drugs = create.data.plates.create.drugs;
+    expect(drugs.create).toBeUndefined();
+    expect(drugs.createMany.data).toHaveLength(96);
+    expect(drugs.createMany.data[95]).toEqual({
+      rowIndex: 95, drugName: "Drug 95", unit: "mg/L",
+      concentrations: { mode: "wells", wells: [{ rowIndex: 7, columnIndex: 11, concentration: 96 }] },
+    });
+    expect(mocks.transaction).toHaveBeenCalledWith(expect.any(Function), { maxWait: 5000, timeout: 20000 });
+    expect(mocks.auditCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("logs a safe failure reference without exposing Prisma messages or credentials", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    mocks.sampleCreate.mockRejectedValueOnce(Object.assign(new Error(
+      "postgresql://secret-user:secret-password@private.example/db Authorization: Bearer secret-token",
+    ), { code: "P2028" }));
+    const response = await POST(creationRequest());
+    expect(response.status).toBe(500);
+    const body = await response.json();
+    expect(body.error.message).toContain("時間内に完了しませんでした");
+    expect(body.error.requestDebugId).toBeTruthy();
+    expect(log).toHaveBeenCalledWith({
+      event: "SAMPLE_CREATION_FAILED", route: "POST /api/samples", stage: "create-sample-plate",
+      errorCode: "P2028", requestDebugId: body.error.requestDebugId,
+    });
+    expect(mocks.auditCreate).not.toHaveBeenCalled();
+    const diagnostic = JSON.stringify({ body, logs: log.mock.calls });
+    expect(diagnostic).not.toMatch(/secret-password|secret-token|private\.example|postgresql:\/\//);
+  });
+
+  it("does not return success when the audit write fails", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    mocks.auditCreate.mockRejectedValueOnce(Object.assign(new Error("private DB information"), { code: "P2003" }));
+    const response = await POST(creationRequest());
+    expect(response.status).toBe(500);
+    expect(log).toHaveBeenCalledWith(expect.objectContaining({ stage: "create-audit", errorCode: "P2003" }));
+    expect(JSON.stringify(await response.json())).not.toContain("private DB information");
+  });
+
+  it("preserves the duplicate Sample-ID conflict response", async () => {
+    mocks.sampleCreate.mockRejectedValueOnce({ code: "P2002" });
+    const response = await POST(creationRequest());
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "SAMPLE_CODE_EXISTS" });
   });
 });
 

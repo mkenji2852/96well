@@ -27,15 +27,20 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const requestDebugId = crypto.randomUUID();
+  let stage = "authentication";
   try {
     const actor = await requireAuthenticatedUser(request);
     requirePermission(actor, "sample:create");
+    stage = "validation";
     const parsed = createSampleSchema.safeParse(await request.json().catch(() => null));
     if (!parsed.success) {
       return NextResponse.json({ error: "INVALID_REQUEST", details: parsed.error.flatten() }, { status: 400 });
     }
 
+    stage = "transaction-start";
     const result = await prisma.$transaction(async (tx) => {
+      stage = "create-sample-plate";
       const sample = await tx.sample.create({
         data: {
           organizationId: actor.organizationId,
@@ -48,7 +53,7 @@ export async function POST(request: Request) {
               organizationId: actor.organizationId,
               name: parsed.data.plateName || `${parsed.data.sampleCode} Plate 1`,
               drugs: {
-                create: parsed.data.drugs.map((drug, fallbackRowIndex) => {
+                createMany: { data: parsed.data.drugs.map((drug, fallbackRowIndex) => {
                   const concentrations = (drug.wells
                     ? flexibleConcentrations(drug.wells)
                     : drug.concentrations ?? []) as Prisma.InputJsonValue;
@@ -58,7 +63,7 @@ export async function POST(request: Request) {
                     unit: drug.unit,
                     concentrations,
                   };
-                }),
+                }) },
               },
             },
           },
@@ -67,6 +72,7 @@ export async function POST(request: Request) {
       });
 
       const plate = sample.plates[0];
+      stage = "create-audit";
       await tx.auditLog.create({
         data: {
           actorId: actor.userId,
@@ -83,8 +89,9 @@ export async function POST(request: Request) {
         },
       });
       return { sample, plate };
-    });
+    }, { maxWait: 5000, timeout: 20000 });
 
+    stage = "response";
     return NextResponse.json(result, { status: 201 });
   } catch (error) {
     const authResponse = authErrorResponse(error);
@@ -92,7 +99,17 @@ export async function POST(request: Request) {
     if (typeof error === "object" && error !== null && "code" in error && error.code === "P2002") {
       return NextResponse.json({ error: "SAMPLE_CODE_EXISTS" }, { status: 409 });
     }
-    console.error(error);
-    return NextResponse.json({ error: { code: "INTERNAL_ERROR", message: "処理に失敗しました。" } }, { status: 500 });
+    const errorCode = typeof error === "object" && error !== null && "code" in error
+      && typeof error.code === "string" && /^P\d{4}$/.test(error.code) ? error.code : null;
+    console.error({
+      event: "SAMPLE_CREATION_FAILED", route: "POST /api/samples",
+      requestDebugId, stage, errorCode,
+    });
+    const message = errorCode === "P2028"
+      ? "作成処理が時間内に完了しませんでした。Sample一覧を確認してから再度お試しください。"
+      : "Sample／プレートの作成に失敗しました。管理者へ問い合わせ用IDをお伝えください。";
+    return NextResponse.json({ error: {
+      code: "INTERNAL_ERROR", message: `${message}（問い合わせ用ID: ${requestDebugId}）`, requestDebugId,
+    } }, { status: 500 });
   }
 }
