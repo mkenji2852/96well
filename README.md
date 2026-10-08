@@ -108,7 +108,7 @@ triggerエラーはテストで判定できるよう、`AST_BREAKPOINT_IMMUTABLE
 プレート画面では、同じ施設の承認済み・有効なBreakpointSetを菌種に関係なく選択できます。
 Sampleの菌種と対象菌種が異なる場合は「異なる菌種のBreakpointを研究用に任意適用する」にチェックし、任意適用理由を入力して保存します。
 例としてE. coliにStaphylococcus aureus用のセットを選択できます。薬剤名が一致するルールの境界値で判定し、該当薬剤がなければNO_BREAKPOINTになります。
-この比較は研究用・非臨床利用に限定します。Sample菌種、Breakpoint対象菌種、理由、使用した版を判定根拠と監査に保存し、Excel Summaryにも対象菌種と研究用の異菌種適用を表示します。
+この比較は研究用・非臨床利用に限定します。Sample菌種、Breakpoint対象菌種、理由、使用した版を判定根拠と監査に保存し、Excel Methodにも対象菌種と研究用の異菌種適用を表示します。
 元のBreakpointSetは変更せず、施設スコープ、承認状態、有効期間、contentHash検証、結果のappend-only履歴は維持します。
 
 ### BreakpointSet contentHash
@@ -405,10 +405,17 @@ MIC/S/I/R結果は物理削除しません。再計算はDB transaction内で行
 - `v0.2.0-research-local` の通常プレート保存フローでは `breakpointSetId` を送信せず、Breakpointなし保存を許可し、MIC/S/I/R再計算をスキップします
 - `RawMic` には `sourceWellRevision`、`calculationEngineVersion`、`breakpointSetId`、`createdByUserId` を保存します
 - `SirInterpretation` には `ruleEngineVersion`、`breakpointSetId`、`calculatedByUserId` を保存します
-- Excel SummaryはCURRENTのみを出力し、RawMic ID / SirInterpretation ID / breakpointSetId / engine versionを含みます
+- Excel SummaryはSample-IDを行、薬剤名を列に配置し、各薬剤のMIC・判定を横並びの2列にまとめます。選択中プレートの結果を1行に出力し、Breakpointなしの判定欄は空白です
+- RawMic ID / SirInterpretation ID / breakpointSetId / engine versionなどの追跡情報は、profileで許可された範囲でMethodの計算詳細へ出力します
 - `InterpretationHistory` は `AUDIT_FULL` profileでのみ出力します
 
 ## Excel出力のセキュリティとプライバシー
+
+初期画面の「Sample-ID範囲でExcel出力」から開始・終了IDを指定できます。両端を含む自然順（SMP-2はSMP-10より前）で、同じ施設の最大50 Sampleを選択し、各Sampleの最新作成プレート1件を採用します。複数プレートの結合や重複Sampleの加重は行いません。
+範囲出力はANONYMIZEDで、SummaryにSample行と薬剤ごとのMIC／判定列、MICStatisticsにMIC50／MIC90を出力します。Breakpointなしの判定欄は空白です。
+MIC50／MIC90は菌種・薬剤名・単位ごとにnearest-rank（ceil(N×0.5)、ceil(N×0.9)）で計算し、濃度を補間しません。≤／>などの値は打切り境界として扱い、確定できない場合は区間・境界・未確定を表示します。
+未確定・要確認・ウェルrevision不一致、同一Sampleの同一薬剤・単位の重複測定は集計から除外し、Nと除外数を併記します。菌名未設定は未設定グループとして区別します。少数例の集計も研究用の記述値であり、診断・正式検査報告には使用できません。
+取得上限を超えた場合やBreakpointSet／標準／版が混在する場合は切り捨てず出力を拒否します。全対象の結果IDとrevisionは出力開始時のSerializable transactionで固定し、ExportRecordに全snapshotを保存します。
 
 Excel出力は目的別プロファイルで制御します。既定は `ANONYMIZED` です。
 

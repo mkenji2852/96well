@@ -1,6 +1,6 @@
 import ExcelJS from "exceljs";
 import { describe, expect, it } from "vitest";
-import { buildPlateWorkbook, parseExportProfile, safeExcelText, type ExportMetadata } from "./excel";
+import { buildPlateWorkbook, buildPopulationWorkbook, parseExportProfile, safeExcelText, type ExportMetadata } from "./excel";
 import type { ExportProfile } from "@/types/domain";
 
 const generatedAt = new Date("2026-01-02T03:04:05Z");
@@ -18,7 +18,7 @@ function metadata(profile: ExportProfile, patch: Partial<ExportMetadata> = {}): 
     breakpointStatus: "APPROVED",
     breakpointApprovedByUserId: "admin-1",
     breakpointApprovedAt: generatedAt,
-    noBreakpointPolicy: "AS_NO_BREAKPOINT",
+    noBreakpointPolicy: "AS_BLANK",
     snapshot: {
       plateId: "plate-1",
       plateRevision: "2026-01-02T03:00:00.000Z",
@@ -172,6 +172,85 @@ function workbookText(workbook: ExcelJS.Workbook): string {
 }
 
 describe("buildPlateWorkbook privacy profiles", () => {
+  it("exports multiple samples as rows with MIC50/MIC90 and no private fields", async () => {
+    const samples = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512].map((value, index) => {
+      const original = plate();
+      return { plate: { ...original, sampleId: `sample-${index}`, sample: { ...original.sample, id: `sample-${index}`, sampleCode: `SMP-${index}` },
+        rawMics: [{ ...original.rawMics[0], value, sourceWellRevision: original.wellRevision }],
+      }, metadata: metadata("ANONYMIZED"), auditLogs: [] };
+    });
+    const buffer = await buildPopulationWorkbook(samples);
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer);
+    const statistics = workbook.getWorksheet("MICStatistics")!;
+    expect(statistics.getRow(2).getCell(5).value).toBe(10);
+    expect(statistics.getRow(2).getCell(9).text).toBe("16");
+    expect(statistics.getRow(2).getCell(10).text).toBe("256");
+    const summary = workbook.getWorksheet("Summary")!;
+    expect(summary.getRow(5).getCell(1).text).toBe("SMP-0");
+    expect(summary.getRow(14).getCell(1).text).toBe("SMP-9");
+    const text = workbookText(workbook);
+    expect(text).not.toContain("-private note");
+    expect(text).not.toContain("sample-0");
+    expect(text).not.toContain("raw-1");
+    expect(text).not.toContain("sir-1");
+    expect(workbook.getWorksheet("Wells")!.rowCount).toBe(121);
+  });
+  it("puts each drug's MIC and interpretation in paired columns on one Sample-ID row", async () => {
+    const workbook = await loadWorkbook("ANONYMIZED");
+    const summary = workbook.getWorksheet("Summary")!;
+    let header = 0;
+    summary.eachRow(row => { if (row.getCell(2).value === "'@Drug X") header = row.number; });
+    expect(summary.getRow(header).getCell(2).value).toBe("'@Drug X");
+    expect(summary.getRow(header + 1).getCell(2).value).toBe("MIC (µg/mL)");
+    expect(summary.getRow(header + 1).getCell(3).value).toBe("判定");
+    expect(summary.getRow(header + 2).getCell(1).value).toBe("'=S-001");
+    expect(summary.getRow(header + 2).getCell(2).value).toBe("2");
+    expect(summary.getRow(header + 2).getCell(3).value).toBe("S");
+    expect(summary.getRow(header + 1).getCell(1).isMerged).toBe(true);
+    expect(summary.columnCount).toBe(3);
+    expect(summary.views[0]).toMatchObject({ state: "frozen", xSplit: 1, ySplit: header + 1 });
+    expect(workbookText(summary.workbook)).not.toContain("raw-old");
+  });
+
+  it("keeps MIC visible and leaves interpretation blank for NO_BREAKPOINT", async () => {
+    const original = plate();
+    const current = original.rawMics[0];
+    const buffer = await buildPlateWorkbook({ metadata: metadata("ANONYMIZED"), auditLogs: [], plate: {
+      ...original, rawMics: [{ ...current, interpretations: current.interpretations.map(item => ({ ...item, category: "NO_BREAKPOINT", standard: null, ruleVersion: null })) }],
+    } });
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer);
+    const summary = workbook.getWorksheet("Summary")!;
+    let rowNumber = 0;
+    summary.eachRow(row => { if (row.getCell(1).value === "'=S-001") rowNumber = row.number; });
+    expect(summary.getRow(rowNumber).getCell(3).text).toBe("");
+    expect(summary.getRow(rowNumber).getCell(2).text).toBe("2");
+    expect(workbookText(workbook)).not.toContain("NO_BREAKPOINT");
+  });
+
+  it("places a second drug in the next MIC/interpretation column pair without duplicating the sample", async () => {
+    const original = plate();
+    const buffer = await buildPlateWorkbook({ metadata: metadata("ANONYMIZED"), auditLogs: [], plate: {
+      ...original,
+      drugs: [...original.drugs, { id: "drug-b", rowIndex: 1, drugName: "Drug B", unit: "µg/mL", concentrations: [8] }],
+      wells: [...original.wells, { ...original.wells[0], rowIndex: 1, columnIndex: 0 }],
+    } });
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer);
+    const summary = workbook.getWorksheet("Summary")!;
+    let sampleRow = 0;
+    let occurrences = 0;
+    summary.eachRow(row => { if (row.getCell(1).value === "'=S-001") { sampleRow = row.number; occurrences++; } });
+    expect(occurrences).toBe(1);
+    expect(summary.getRow(sampleRow).getCell(2).text).toBe("2");
+    expect(summary.getRow(sampleRow).getCell(3).text).toBe("S");
+    expect(summary.getRow(sampleRow).getCell(4).text).toContain("8");
+    expect(summary.getRow(sampleRow).getCell(5).text).toBe("");
+    expect(summary.getRow(sampleRow - 2).getCell(4).text).toBe("Drug B");
+    expect(summary.columnCount).toBe(5);
+    expect(summary.pageSetup.printArea).toContain("E");
+  });
   it("labels cross-organism research interpretation without exporting its free-text reason", async () => {
     const original = plate();
     const current = original.rawMics[0];

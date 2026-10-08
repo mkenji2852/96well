@@ -32,10 +32,6 @@ function jsonError(code: string, message: string, status: number): NextResponse 
   return NextResponse.json({ error: { code, message } }, { status });
 }
 
-function policy(value: string | null): NoBreakpointOutputPolicy {
-  return value === "AS_NA" || value === "AS_BLANK" ? value : "AS_NO_BREAKPOINT";
-}
-
 function permissionForProfile(profile: ExportProfile): Permission {
   if (profile === "CLINICAL_INTERNAL") return "export:clinical";
   if (profile === "AUDIT_FULL") return "export:audit";
@@ -145,7 +141,7 @@ export async function GET(request: Request, { params }: RouteContext) {
     const requestedStandard = url.searchParams.get("standard");
     const requestedVersion = url.searchParams.get("version");
     const requestedBreakpointSetId = url.searchParams.get("breakpointSetId");
-    const noBreakpointPolicy = policy(url.searchParams.get("noBreakpointPolicy"));
+    const noBreakpointPolicy: NoBreakpointOutputPolicy = "AS_BLANK";
 
     await auditExport(profile === "AUDIT_FULL" ? "AUDIT_EXPORT_REQUESTED" : "EXPORT_REQUESTED", currentActor, id, {
       exportId,

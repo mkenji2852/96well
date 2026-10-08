@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { PlateEditor } from "@/components/plate-editor";
 import { useApplicationToolbar } from "@/components/application-toolbar";
@@ -341,9 +341,15 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [deleteLogs, setDeleteLogs] = useState<string[]>([]);
+  const [exportFrom, setExportFrom] = useState("");
+  const [exportTo, setExportTo] = useState("");
+  const [rangeExportBusy, setRangeExportBusy] = useState(false);
+  const [rangeExportError, setRangeExportError] = useState("");
+  const rangeExportLock = useRef(false);
+  const [rangeDownload, setRangeDownload] = useState<{ href: string; fileName: string } | null>(null);
   const returnHome = useCallback(() => { setPlate(null); setStage("sample"); }, []);
   // The plate editor registers its own action while mounted to protect unsaved wells.
-  const refreshUser = useApplicationToolbar(plate ? undefined : returnHome, busy || loginBusy || inviteBusy);
+  const refreshUser = useApplicationToolbar(plate ? undefined : returnHome, busy || loginBusy || inviteBusy || rangeExportBusy);
   const t = copy[locale];
 
   const selectedSample = useMemo(
@@ -368,6 +374,7 @@ export default function Home() {
     const data = await readJsonResponse<{ samples: SampleListItem[] } & ApiErrorPayload>(response);
     if (response.status === 401) {
       setAuthRequired(true);
+      setRangeDownload(null);
       setSamples([]);
       setSelectedPlateId("");
       return;
@@ -383,6 +390,7 @@ export default function Home() {
   useEffect(() => () => {
     imageBatchPreviews.forEach((preview) => URL.revokeObjectURL(preview.url));
   }, [imageBatchPreviews]);
+  useEffect(() => () => { if (rangeDownload) URL.revokeObjectURL(rangeDownload.href); }, [rangeDownload]);
 
   useEffect(() => {
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => undefined);
@@ -518,6 +526,25 @@ export default function Home() {
       ...drug,
       wells: drug.wells.filter((well) => !selectedKeys.has(wellKey(well.rowIndex, well.columnIndex))),
     })));
+  };
+
+  const exportSampleRange = async (event: FormEvent) => {
+    event.preventDefault();
+    if (rangeExportLock.current) return;
+    rangeExportLock.current = true;
+    setRangeExportBusy(true);
+    setRangeExportError("");
+    setRangeDownload(null);
+    try {
+      const response = await fetch("/api/export/batch", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ from: exportFrom.trim(), to: exportTo.trim() }) });
+      if (!response.ok) {
+        const data = await readJsonResponse<ApiErrorPayload>(response);
+        throw new Error(apiErrorMessage(data, "範囲出力に失敗しました。"));
+      }
+      const exportId = response.headers.get("x-export-id") ?? "research";
+      setRangeDownload({ href: URL.createObjectURL(await response.blob()), fileName: `ast-export-${exportId.replace(/[^a-zA-Z0-9_-]/g, "")}.xlsx` });
+    } catch (caught) { setRangeExportError(userFacingError(caught, "範囲出力に失敗しました。")); }
+    finally { rangeExportLock.current = false; setRangeExportBusy(false); }
   };
 
   const openPlate = async (plateId = selectedPlateId) => {
@@ -829,6 +856,7 @@ export default function Home() {
 
   const logout = async () => {
     setError("");
+    setRangeDownload(null);
     await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
     void refreshUser?.();
     setSamples([]);
@@ -1202,6 +1230,28 @@ export default function Home() {
             </div>
           </section>
         </section>
+      )}
+
+      {!authRequired && stage === "sample" && (
+        <form className="form-shell" onSubmit={exportSampleRange}>
+          <section className="form-card">
+            <div className="section-number">EXP</div>
+            <div className="section-body">
+              <h2>Sample-ID範囲でExcel出力</h2>
+              <p className="muted-text">開始・終了を含む範囲を自然順（例: SMP-2 → SMP-10）で選択します。最大50 Sample、各Sampleの最新プレート1件を匿名化プロファイルで出力します。Sample-IDには研究用の匿名IDだけを使用してください。</p>
+              <div className="field-grid">
+                <label>開始Sample-ID<input required list="export-sample-codes" value={exportFrom} onChange={event => setExportFrom(event.target.value)} placeholder="SMP-001" /></label>
+                <label>終了Sample-ID<input required list="export-sample-codes" value={exportTo} onChange={event => setExportTo(event.target.value)} placeholder="SMP-020" /></label>
+              </div>
+              <datalist id="export-sample-codes">{samples.map(sample => <option value={sample.sampleCode} key={sample.id} />)}</datalist>
+              <p className="muted-text">MIC50／MIC90は菌種・薬剤・単位ごとに算出します。未確定・要確認・重複測定の除外数、境界付きMIC数、集計数Nも出力します。</p>
+              <button className="primary-button" disabled={rangeExportBusy || !exportFrom.trim() || !exportTo.trim()}>{rangeExportBusy ? "Excel生成中…" : "範囲指定でExcel出力"}</button>
+              {rangeExportBusy && <p role="status">対象の取得とExcel集計を行っています。</p>}
+              {rangeExportError && <p className="error-message" role="alert">{rangeExportError}</p>}
+              {rangeDownload && <p role="status"><a className="text-link" href={rangeDownload.href} download={rangeDownload.fileName}>生成済みExcelをダウンロード</a></p>}
+            </div>
+          </section>
+        </form>
       )}
 
       {!authRequired && stage === "settings" && (

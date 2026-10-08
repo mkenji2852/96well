@@ -121,7 +121,7 @@ test("mobile plate entry supports state, bulk apply, details, validation, and sa
   await dragAssignA1ToA12(page);
   await page.getByRole("button", { name: "プレート設定を保存" }).click();
 
-  await page.getByLabel("Sample-ID").fill("S-001");
+  await page.getByLabel("Sample-ID", { exact: true }).fill("S-001");
   await page.getByPlaceholder("Escherichia coli").fill("E. coli");
   await page.getByRole("button", { name: "プレート入力へ" }).click();
 

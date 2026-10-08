@@ -2,6 +2,7 @@ import ExcelJS from "exceljs";
 import { normalizeDrugAssignments } from "@/lib/drug-layout";
 import { calculateRawMic, formatMic } from "@/lib/mic";
 import { formatInterpretation } from "@/lib/rule-engine";
+import { calculateMicStatistics, type PopulationMic } from "@/lib/mic-statistics";
 import type { ExportProfile, MicModifier, NoBreakpointOutputPolicy, RawMicOperator, SirCategory, WellState } from "@/types/domain";
 
 export const EXPORT_PROFILES = ["ANONYMIZED", "CLINICAL_INTERNAL", "AUDIT_FULL"] as const satisfies readonly ExportProfile[];
@@ -35,7 +36,7 @@ export interface ExportMetadata {
   snapshot: ExportSnapshot;
 }
 
-interface ExportData {
+export interface ExportData {
   plate: {
     id: string;
     name: string;
@@ -210,25 +211,178 @@ function breakpointApplicationFields(rationale: unknown): string[] {
   ];
 }
 
-function addSummarySheet(workbook: ExcelJS.Workbook, { plate, metadata }: ExportData): void {
+function populationEntries(plate: ExportData["plate"]): Array<PopulationMic & { text: string; category: SirCategory }> {
+  const current = currentRawMics(plate);
+  return plate.drugs.flatMap(drug => {
+    const saved = current.find(mic => mic.plateDrugId === drug.id || (!mic.plateDrugId && mic.plateDrug.drugName === drug.drugName && mic.plateDrug.unit === drug.unit));
+    const assignments = normalizeDrugAssignments(drug);
+    if (!saved && !assignments.length) return [];
+    const derived = saved ? null : calculateRawMic(assignments.map(item => item.concentration), assignments.map(item => {
+      const well = plate.wells.find(well => well.rowIndex === item.rowIndex && well.columnIndex === item.columnIndex);
+      return normalizeWellState(well && (well.source === "MANUAL" || well.source === "IMAGE_REVIEWED") ? well.state : undefined);
+    }));
+    const operator: RawMicOperator | null = saved
+      ? (saved.rawMicOperator as RawMicOperator | null) ?? (saved.modifier === "EQUAL" ? "=" : saved.modifier === "LESS_THAN_OR_EQUAL" ? "<=" : saved.modifier === "GREATER_THAN" ? ">" : null)
+      : derived!.rawMicOperator;
+    const value = saved ? saved.value : derived!.value;
+    return [{
+      sampleId: plate.sample.id ?? plate.sampleId, organism: plate.sample.organism, drugName: drug.drugName, unit: drug.unit,
+      value, operator, needsReview: saved ? saved.reviewRequired || saved.sourceWellRevision !== plate.wellRevision : derived!.needsReview,
+      text: formatMic(value, operator), category: saved ? categoryFor(currentInterpretation(saved)) : "NO_BREAKPOINT",
+    }];
+  });
+}
+
+export async function buildPopulationWorkbook(data: ExportData[]): Promise<Buffer> {
+  if (!data.length || data.length > 50) throw new Error("Select between 1 and 50 samples.");
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = workbook.lastModifiedBy = workbook.company = "MIC Plate Recorder";
+  workbook.created = workbook.modified = data[0].metadata.generatedAt;
+  workbook.title = "Research MIC population export";
+  const records = data.map(item => ({ data: item, entries: populationEntries(item.plate) }));
+  const keys = [...new Set(records.flatMap(record => record.entries.map(entry => JSON.stringify([entry.drugName, entry.unit]))))];
+  if (keys.length > 200) throw new Error("Too many drug/unit groups for one export.");
+  const summary = workbook.addWorksheet("Summary");
+  configureSheet(summary);
+  addTitle(summary, "研究用 MIC / 判定一覧");
+  summary.addRow(["各Sampleの最新プレート1件。Breakpointなしは空白。MIC50/MIC90はMICStatisticsを参照。"]);
+  const drugHeader = summary.addRow(["Sample-ID", "菌名", ...keys.flatMap(key => [safeExcelText(JSON.parse(key)[0]), ""])]);
+  const fields = summary.addRow(["", "", ...keys.flatMap(key => [safeExcelText(`MIC (${JSON.parse(key)[1]})`), "判定"])]);
+  styleHeader(drugHeader); styleHeader(fields);
+  keys.forEach((_, index) => summary.mergeCells(drugHeader.number, index * 2 + 3, drugHeader.number, index * 2 + 4));
+  for (const record of records) {
+    const row: ExcelJS.CellValue[] = [safeExcelText(record.data.plate.sample.sampleCode), safeExcelText(record.data.plate.sample.organism ?? "")];
+    for (const key of keys) {
+      const [drugName, unit] = JSON.parse(key) as string[];
+      const entries = record.entries.filter(entry => entry.drugName === drugName && entry.unit === unit);
+      if (entries.length > 1) row.push(entries.map(entry => entry.text).join(" / "), "重複測定・集計除外");
+      else if (entries.length === 1) row.push(entries[0].text, entries[0].category === "NO_BREAKPOINT" ? "" : formatInterpretation(entries[0].category));
+      else row.push("", "");
+    }
+    const added = summary.addRow(row);
+    keys.forEach((key, index) => {
+      const [drugName, unit] = JSON.parse(key) as string[];
+      if (record.entries.some(entry => entry.drugName === drugName && entry.unit === unit && entry.needsReview)) {
+        added.getCell(index * 2 + 3).note = "要確認またはウェルrevision不一致のためMIC50/MIC90集計から除外しました。";
+      }
+    });
+  }
+  summary.columns = [{ width: 24 }, { width: 26 }, ...keys.flatMap(() => [{ width: 20 }, { width: 16 }])];
+  summary.views = [{ state: "frozen", xSplit: 2, ySplit: fields.number, showGridLines: false }];
+  const statistics = workbook.addWorksheet("MICStatistics");
+  configureSheet(statistics);
+  statistics.addRow(["菌名", "薬剤名", "単位", "対象Sample数", "集計数 N", "未確定・要確認除外", "重複測定除外", "境界付きMIC数", "MIC50", "MIC90"]);
+  styleHeader(statistics.getRow(1));
+  for (const result of calculateMicStatistics(records.flatMap(record => record.entries))) {
+    statistics.addRow([safeExcelText(result.organism ?? "未設定"), safeExcelText(result.drugName), safeExcelText(result.unit),
+      result.totalSamples, result.includedSamples, result.invalidSamples, result.duplicateSamples, result.qualifiedSamples, result.mic50, result.mic90]);
+  }
+  statistics.columns = [26, 26, 14, 18, 14, 24, 20, 18, 24, 24].map(width => ({ width }));
+  statistics.addRow([]);
+  statistics.addRow(["方式: nearest-rank（順位 ceil(N×0.50) / ceil(N×0.90)）。希釈濃度を補間しません。"]);
+  statistics.addRow(["≤ / < / ≥ / > は境界として集計し、確定できない場合は区間または未確定を表示。菌種・薬剤・単位は混ぜません。"]);
+  statistics.addRow(["同一Sampleの同一薬剤・単位の重複測定、未確定MIC、要確認結果は集計から除外。少数例もNを併記する研究用集計です。"]);
+  const commonBreakpoint = data.find(item => item.metadata.breakpointSetId)?.metadata ?? data[0].metadata;
+  addMethodSheet(workbook, { ...data[0], metadata: { ...data[0].metadata,
+    breakpointSetId: commonBreakpoint.breakpointSetId, breakpointStandard: commonBreakpoint.breakpointStandard,
+    breakpointVersion: commonBreakpoint.breakpointVersion, breakpointContentHash: commonBreakpoint.breakpointContentHash,
+  } });
+  const method = workbook.getWorksheet("Method")!;
+  const wells = workbook.addWorksheet("Wells");
+  for (const item of data) {
+    addWellsSheet(workbook, item, wells);
+    if (item !== data[0]) addResultDetails(method, item);
+  }
+  workbook.worksheets.forEach(sheet => { sheet.state = "visible"; });
+  return Buffer.from(await workbook.xlsx.writeBuffer());
+}
+
+function addSummarySheet(workbook: ExcelJS.Workbook, data: ExportData): void {
+  const { plate, metadata } = data;
   const sheet = workbook.addWorksheet("Summary");
   configureSheet(sheet);
-  sheet.views = [{ state: "frozen", ySplit: 11, showGridLines: false }];
-  addTitle(sheet, "MIC Plate Result");
+  sheet.columns = [{ width: 32 }, { width: 20 }, { width: 38 }];
+  addTitle(sheet, "MIC / 判定一覧");
+  sheet.mergeCells("A1:C1");
+  sheet.addRow(["研究用・非臨床利用"]);
+  sheet.mergeCells("A2:C2");
   sheet.addRows([
-    ["Profile", metadata.profile, "Sample code", safeExcelText(plate.sample.sampleCode)],
-    ["Export sample ID", metadata.pseudonymousSampleId, "", ""],
-    ["Organism", safeExcelText(plate.sample.organism ?? "Not specified"), "Status", safeExcelText(plate.status)],
-    ["Breakpoint standard", safeExcelText(metadata.breakpointStandard ?? "Saved result"), "Breakpoint version", safeExcelText(metadata.breakpointVersion ?? "Saved result")],
-    ["Breakpoint content hash", metadata.profile === "ANONYMIZED" ? "Not included" : safeExcelText(metadata.breakpointContentHash?.slice(0, 16) ?? "")],
-    ["Generated at", metadata.generatedAt.toISOString(), "No-breakpoint policy", metadata.noBreakpointPolicy],
-    ["Well revision", metadata.snapshot.wellRevision, "Result revision", metadata.snapshot.resultRevision],
-    ["Legend", "S = Susceptible | I = Intermediate/Increased exposure | R = Resistant | ND = Not determined"],
+    ["菌名", "", safeExcelText(plate.sample.organism ?? "")],
+    ["Breakpoint", "", safeExcelText([metadata.breakpointStandard, metadata.breakpointVersion].filter(Boolean).join(" "))],
+    ["作成日時", "", metadata.generatedAt.toISOString()],
   ]);
   if (metadata.profile !== "ANONYMIZED" && metadata.includeNotes) {
-    sheet.addRow(["Notes", safeExcelText(plate.sample.notes ?? "")]);
+    sheet.addRow(["Notes", "", safeExcelText(plate.sample.notes ?? "")]);
   }
   sheet.addRow([]);
+  const consumed = new Set<string>();
+  const entries: Array<{ drugName: string; unit: string; micText: string; category: SirCategory; needsReview: boolean; rationale?: unknown }> = [];
+
+  const addDrug = (drugName: string, unit: string, micText: string, category: SirCategory, needsReview: boolean, rationale?: unknown) => {
+    entries.push({ drugName, unit, micText, category, needsReview, rationale });
+  };
+
+  const current = currentRawMics(plate);
+  for (const drug of plate.drugs) {
+    const saved = current.find(mic => !consumed.has(mic.id) && (mic.plateDrugId ? mic.plateDrugId === drug.id : mic.plateDrug.drugName === drug.drugName && mic.plateDrug.unit === drug.unit));
+    if (saved) {
+      consumed.add(saved.id);
+      const interpretation = currentInterpretation(saved);
+      addDrug(drug.drugName, drug.unit, formatMic(saved.value, (saved.rawMicOperator as RawMicOperator | null) ?? saved.modifier), categoryFor(interpretation), saved.reviewRequired, interpretation?.rationaleJson);
+    } else {
+      const assignments = normalizeDrugAssignments(drug);
+      if (!assignments.length) continue;
+      const states = assignments.map(assignment => normalizeWellState(plate.wells.find(well => well.rowIndex === assignment.rowIndex && well.columnIndex === assignment.columnIndex)?.state));
+      const mic = calculateRawMic(assignments.map(assignment => assignment.concentration), states);
+      addDrug(drug.drugName, drug.unit, formatMic(mic.value, mic.rawMicOperator ?? mic.modifier), "NO_BREAKPOINT", mic.needsReview);
+    }
+  }
+  for (const saved of current.filter(mic => !consumed.has(mic.id))) {
+    const interpretation = currentInterpretation(saved);
+    addDrug(saved.plateDrug.drugName, saved.plateDrug.unit, formatMic(saved.value, (saved.rawMicOperator as RawMicOperator | null) ?? saved.modifier), categoryFor(interpretation), saved.reviewRequired, interpretation?.rationaleJson);
+  }
+  const header = sheet.addRow(["Sample-ID", ...entries.flatMap(entry => [safeExcelText(entry.drugName), ""])]);
+  const subheader = sheet.addRow(["", ...entries.flatMap(entry => [safeExcelText(`MIC (${entry.unit})`), "判定"])]);
+  styleHeader(header);
+  styleHeader(subheader);
+  sheet.mergeCells(header.number, 1, subheader.number, 1);
+  entries.forEach((_, index) => sheet.mergeCells(header.number, index * 2 + 2, header.number, index * 2 + 3));
+  const result = sheet.addRow([safeExcelText(plate.sample.sampleCode), ...entries.flatMap(entry => [
+    entry.micText, entry.category === "NO_BREAKPOINT" ? "" : formatInterpretation(entry.category),
+  ])]);
+  result.height = 28;
+  const fills: Partial<Record<SirCategory, string>> = { S: "FFD9EAD3", I: "FFFFF2CC", R: "FFF4CCCC" };
+  entries.forEach((entry, index) => {
+    const mic = result.getCell(index * 2 + 2);
+    const interpretation = result.getCell(index * 2 + 3);
+    for (const cell of [mic, interpretation]) {
+      cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+      cell.font = { bold: true, size: 12 };
+    }
+    if (fills[entry.category]) interpretation.fill = { type: "pattern", pattern: "solid", fgColor: { argb: fills[entry.category]! } };
+    if (entry.needsReview) mic.note = "要確認: 入力状態またはMIC結果を確認してください。";
+    const application = breakpointApplicationFields(entry.rationale);
+    if (application[1]) interpretation.note = `${application[1]} / ${application[0]}`;
+  });
+  sheet.columns = [{ width: 26 }, ...entries.flatMap(() => [{ width: 22 }, { width: 14 }])];
+  sheet.views = [{ state: "frozen", xSplit: 1, ySplit: subheader.number, showGridLines: false }];
+  const lastColumn = Math.max(3, entries.length * 2 + 1);
+  sheet.unMergeCells("A1:C1");
+  sheet.unMergeCells("A2:C2");
+  sheet.mergeCells(1, 1, 1, lastColumn);
+  sheet.mergeCells(2, 1, 2, lastColumn);
+  sheet.addRow([]);
+  const legend = sheet.addRow(["判定: S / I / R　空白: Breakpointなし　詳細・追跡情報: Method"]);
+  sheet.mergeCells(legend.number, 1, legend.number, lastColumn);
+  legend.height = 34;
+  legend.getCell(1).alignment = { wrapText: true };
+  sheet.pageSetup.printArea = `A1:${sheet.getColumn(lastColumn).letter}${sheet.rowCount}`;
+  sheet.pageSetup.printTitlesRow = `1:${subheader.number}`;
+}
+
+function addResultDetails(sheet: ExcelJS.Worksheet, { plate, metadata }: ExportData): void {
+  sheet.addRow([]);
+  sheet.addRow(["Calculation Details / 計算結果の追跡情報"]);
 
   const headers = metadata.profile === "ANONYMIZED"
     ? [
@@ -257,7 +411,7 @@ function addSummarySheet(workbook: ExcelJS.Workbook, { plate, metadata }: Export
       formatMic(mic.value, operator ?? mic.modifier),
       mic.value,
       safeExcelText(mic.plateDrug.unit),
-      formatInterpretation(category, metadata.noBreakpointPolicy),
+      formatInterpretation(category, "AS_BLANK"),
       safeExcelText(interpretation?.standard ?? ""),
       safeExcelText(interpretation?.ruleVersion ?? ""),
       safeExcelText(mic.calculationEngineVersion),
@@ -294,7 +448,7 @@ function addSummarySheet(workbook: ExcelJS.Workbook, { plate, metadata }: Export
       formatMic(raw.value, raw.rawMicOperator ?? raw.modifier),
       raw.value,
       safeExcelText(drug.unit),
-      formatInterpretation("NO_BREAKPOINT", metadata.noBreakpointPolicy),
+      "",
       "",
       "",
       safeExcelText(raw.method),
@@ -317,8 +471,8 @@ function addSummarySheet(workbook: ExcelJS.Workbook, { plate, metadata }: Export
   sheet.autoFilter = { from: { row: headerRowNumber, column: 1 }, to: { row: headerRowNumber, column: headers.length } };
 }
 
-function addWellsSheet(workbook: ExcelJS.Workbook, { plate, metadata }: ExportData): void {
-  const sheet = workbook.addWorksheet("Wells");
+function addWellsSheet(workbook: ExcelJS.Workbook, { plate, metadata }: ExportData, existing?: ExcelJS.Worksheet): void {
+  const sheet = existing ?? workbook.addWorksheet("Wells");
   configureSheet(sheet);
   const includeInternal = metadata.profile === "AUDIT_FULL";
   const headers = [
@@ -327,7 +481,7 @@ function addWellsSheet(workbook: ExcelJS.Workbook, { plate, metadata }: ExportDa
     ...(metadata.profile === "ANONYMIZED" ? ["Export Sample ID"] : []),
     "Organism", "Drug", "Well", "Row", "Column", "Concentration", "Unit", "Raw State", "Source", "Confidence", "Review Required", "Observed At",
   ];
-  sheet.addRow(headers);
+  if (!sheet.rowCount) sheet.addRow(headers);
   styleHeader(sheet.getRow(1));
   for (const drug of plate.drugs) {
     for (const assignment of normalizeDrugAssignments(drug)) {
@@ -358,7 +512,8 @@ function addWellsSheet(workbook: ExcelJS.Workbook, { plate, metadata }: ExportDa
   sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: headers.length } };
 }
 
-function addMethodSheet(workbook: ExcelJS.Workbook, { metadata }: ExportData): void {
+function addMethodSheet(workbook: ExcelJS.Workbook, data: ExportData): void {
+  const { metadata } = data;
   const sheet = workbook.addWorksheet("Method");
   configureSheet(sheet);
   sheet.columns = [{ width: 30 }, { width: 72 }];
@@ -366,6 +521,10 @@ function addMethodSheet(workbook: ExcelJS.Workbook, { metadata }: ExportData): v
   sheet.addRows([
     ["Profile", metadata.profile],
     ["Generated at", metadata.generatedAt.toISOString()],
+    ["Export sample ID", metadata.pseudonymousSampleId],
+    ["Well revision", metadata.snapshot.wellRevision],
+    ["Result revision", metadata.snapshot.resultRevision],
+    ["No-breakpoint display", "Blank"],
     ["Export ID", metadata.exportId],
     ["Pseudonymization", "ANONYMIZED exports use an export-scoped random sample ID. The mapping is not included in the workbook."],
     ["Formula injection handling", "All user-provided strings are written as strings and prefixed when they start with formula metacharacters."],
@@ -385,6 +544,7 @@ function addMethodSheet(workbook: ExcelJS.Workbook, { metadata }: ExportData): v
       ["Breakpoint approved at", metadata.breakpointApprovedAt?.toISOString() ?? ""],
     ]);
   }
+  addResultDetails(sheet, data);
 }
 
 function addReviewSummarySheet(workbook: ExcelJS.Workbook, { plate }: ExportData): void {

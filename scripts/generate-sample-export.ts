@@ -45,7 +45,7 @@ async function main() {
     breakpointStatus: null,
     breakpointApprovedByUserId: null,
     breakpointApprovedAt: null,
-    noBreakpointPolicy: "AS_NO_BREAKPOINT" as const,
+    noBreakpointPolicy: "AS_BLANK" as const,
     snapshot: {
       plateId: plate.id,
       plateRevision: plate.updatedAt.toISOString(),

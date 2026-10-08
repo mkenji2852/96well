@@ -272,6 +272,9 @@ describe("GET /api/export/[id] privacy profiles", () => {
     const response = await GET(request("?standard=CLSI&version=2026.1"), routeContext);
     expect(response.status).toBe(200);
     expect(mocks.buildPlateWorkbook).toHaveBeenCalledWith(expect.objectContaining({
+      metadata: expect.objectContaining({ noBreakpointPolicy: "AS_BLANK" }),
+    }));
+    expect(mocks.buildPlateWorkbook).toHaveBeenCalledWith(expect.objectContaining({
       metadata: expect.objectContaining({ breakpointStandard: "CLSI", breakpointVersion: "2026.1", snapshot: expect.objectContaining({
         rawMicIds: ["raw-no-rule", "raw-1"], sirInterpretationIds: ["sir-no-rule", "sir-1"],
       }) }),
