@@ -279,7 +279,7 @@ describe("ImageReviewWorkspace", () => {
     const confirm = screen.getByRole("button", { name: "未確認を予測通り確認" });
     await waitFor(() => expect(confirm).toBeEnabled());
     fireEvent.click(confirm);
-    const approve = screen.getByRole("button", { name: "承認", exact: true });
+    const approve = screen.getByRole("button", { name: "承認" });
     expect(approve).toBeDisabled();
     fireEvent.click(screen.getByLabelText("異なる菌種のBreakpointを研究用に任意適用する", { exact: false }));
     expect(approve).toBeDisabled();

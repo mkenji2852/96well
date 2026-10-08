@@ -1,4 +1,5 @@
 import type { Prisma } from "@prisma/client";
+import { randomUUID } from "node:crypto";
 import type { AuthenticatedActor } from "@/lib/auth";
 import { assertBreakpointContentHash, BreakpointLifecycleError } from "@/lib/breakpoint-lifecycle";
 import { normalizeDrugAssignments } from "@/lib/drug-layout";
@@ -228,7 +229,20 @@ export async function recalculatePlateResults(
   };
   await reservePlateRevision(tx, plate, breakpointSet.id, calculatedAt);
 
-  await tx.auditLog.create({
+  const drugIds = plate.drugs.map(drug => drug.id);
+  const previousRawMics = await tx.rawMic.findMany({ where: { plateId, plateDrugId: { in: drugIds }, status: "CURRENT" } });
+  const previousSirs = await tx.sirInterpretation.findMany({ where: { plateId, plateDrugId: { in: drugIds }, status: "CURRENT" } });
+  const rawByDrug = new Map(previousRawMics.map(result => [result.plateDrugId, result]));
+  const sirByDrug = new Map(previousSirs.map(result => [result.plateDrugId, result]));
+  if (rawByDrug.size !== previousRawMics.length || sirByDrug.size !== previousSirs.length) {
+    throw new ResultCalculationError("RESULT_RECALCULATION_CONFLICT", "CURRENT結果が重複しています。管理者へ確認してください。");
+  }
+  const rawRecords: Prisma.RawMicCreateManyInput[] = [];
+  const sirRecords: Prisma.SirInterpretationCreateManyInput[] = [];
+  const auditRecords: Prisma.AuditLogCreateManyInput[] = [];
+  const auditLog = { create: ({ data }: { data: Prisma.AuditLogCreateManyInput }) => auditRecords.push(data) };
+
+  await auditLog.create({
     data: {
       actorId: actor.userId,
       actorLabel: actor.userId,
@@ -282,19 +296,9 @@ export async function recalculatePlateResults(
       unit: breakpointRule.unit,
     } : null);
 
-    const previousRawMic = await tx.rawMic.findFirst({
-      where: { plateId, plateDrugId: drug.id, status: "CURRENT" },
-      orderBy: { createdAt: "desc" },
-    });
+    const previousRawMic = rawByDrug.get(drug.id);
     if (previousRawMic) {
-      const superseded = await tx.rawMic.updateMany({
-        where: { id: previousRawMic.id, status: "CURRENT" },
-        data: { status: "SUPERSEDED", supersededAt: calculatedAt },
-      });
-      if (superseded.count !== 1) {
-        throw new ResultCalculationError("RESULT_RECALCULATION_CONFLICT", "Raw MICのCURRENT更新が競合しました。");
-      }
-      await tx.auditLog.create({
+      await auditLog.create({
         data: {
           actorId: actor.userId,
           actorLabel: actor.userId,
@@ -324,8 +328,8 @@ export async function recalculatePlateResults(
       });
     }
 
-    const rawMic = await tx.rawMic.create({
-      data: {
+    const rawMic = {
+        id: randomUUID(),
         plateId,
         plateDrugId: drug.id,
         value: raw.value,
@@ -337,15 +341,15 @@ export async function recalculatePlateResults(
         reviewRequired: raw.needsReview,
         sourceWellRevision: plate.wellRevision,
         breakpointSetId: breakpointSet.id,
-        status: "CURRENT",
+        status: "CURRENT" as const,
         supersedesId: previousRawMic?.id ?? null,
         rationaleJson: inputJson(micRationale(raw)),
         calculatedAt,
         createdAt: calculatedAt,
         createdByUserId: actor.userId,
-      },
-    });
-    await tx.auditLog.create({
+    } satisfies Prisma.RawMicCreateManyInput;
+    rawRecords.push(rawMic);
+    await auditLog.create({
       data: {
         actorId: actor.userId,
         actorLabel: actor.userId,
@@ -370,19 +374,9 @@ export async function recalculatePlateResults(
       },
     });
 
-    const previousSir = await tx.sirInterpretation.findFirst({
-      where: { plateId, plateDrugId: drug.id, status: "CURRENT" },
-      orderBy: { calculatedAt: "desc" },
-    });
+    const previousSir = sirByDrug.get(drug.id);
     if (previousSir) {
-      const superseded = await tx.sirInterpretation.updateMany({
-        where: { id: previousSir.id, status: "CURRENT" },
-        data: { status: "SUPERSEDED", supersededAt: calculatedAt },
-      });
-      if (superseded.count !== 1) {
-        throw new ResultCalculationError("RESULT_RECALCULATION_CONFLICT", "S/I/R判定のCURRENT更新が競合しました。");
-      }
-      await tx.auditLog.create({
+      await auditLog.create({
         data: {
           actorId: actor.userId,
           actorLabel: actor.userId,
@@ -412,8 +406,8 @@ export async function recalculatePlateResults(
       });
     }
 
-    const sirInterpretation = await tx.sirInterpretation.create({
-      data: {
+    const sirInterpretation = {
+        id: randomUUID(),
         rawMicId: rawMic.id,
         plateId,
         plateDrugId: drug.id,
@@ -425,15 +419,15 @@ export async function recalculatePlateResults(
         susceptibleMax: breakpointRule?.susceptibleMax ?? null,
         resistantMin: breakpointRule?.resistantMin ?? null,
         ruleEngineVersion: SIR_RULE_ENGINE_VERSION,
-        status: "CURRENT",
+        status: "CURRENT" as const,
         supersedesId: previousSir?.id ?? null,
         rationaleJson: inputJson({ ...sir.rationale, engineVersion: SIR_RULE_ENGINE_VERSION, application }),
         interpretedAt: calculatedAt,
         calculatedAt,
         calculatedByUserId: actor.userId,
-      },
-    });
-    await tx.auditLog.create({
+    } satisfies Prisma.SirInterpretationCreateManyInput;
+    sirRecords.push(sirInterpretation);
+    await auditLog.create({
       data: {
         actorId: actor.userId,
         actorLabel: actor.userId,
@@ -478,5 +472,34 @@ export async function recalculatePlateResults(
     });
   }
 
+  // All writes stay in the caller's transaction. A failed insert/audit rolls back
+  // both supersedes and the reserved revision; no previous result is deleted.
+  if (previousRawMics.length) {
+    const superseded = await tx.rawMic.updateMany({
+      where: { plateId, id: { in: previousRawMics.map(result => result.id) }, status: "CURRENT" },
+      data: { status: "SUPERSEDED", supersededAt: calculatedAt },
+    });
+    if (superseded.count !== previousRawMics.length) {
+      throw new ResultCalculationError("RESULT_RECALCULATION_CONFLICT", "Raw MICのCURRENT更新が競合しました。");
+    }
+  }
+  if (previousSirs.length) {
+    const superseded = await tx.sirInterpretation.updateMany({
+      where: { plateId, id: { in: previousSirs.map(result => result.id) }, status: "CURRENT" },
+      data: { status: "SUPERSEDED", supersededAt: calculatedAt },
+    });
+    if (superseded.count !== previousSirs.length) {
+      throw new ResultCalculationError("RESULT_RECALCULATION_CONFLICT", "S/I/R判定のCURRENT更新が競合しました。");
+    }
+  }
+  if (rawRecords.length) {
+    const inserted = await tx.rawMic.createMany({ data: rawRecords });
+    if (inserted.count !== rawRecords.length) throw new ResultCalculationError("RESULT_RECALCULATION_CONFLICT", "MIC結果をすべて記録できませんでした。");
+  }
+  if (sirRecords.length) {
+    const inserted = await tx.sirInterpretation.createMany({ data: sirRecords });
+    if (inserted.count !== sirRecords.length) throw new ResultCalculationError("RESULT_RECALCULATION_CONFLICT", "S/I/R結果をすべて記録できませんでした。");
+  }
+  await tx.auditLog.createMany({ data: auditRecords });
   return results;
 }

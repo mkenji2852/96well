@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { recalculatePlateResults, ResultCalculationError } from "./plate-results";
 import type { AuthenticatedActor } from "./auth";
 import { calculateBreakpointContentHash } from "./breakpoint-lifecycle";
@@ -91,13 +91,20 @@ function createTx(options: {
       },
     },
     rawMic: {
+      findMany: vi.fn(async ({ where }: any) => state.rawMics.filter(raw => raw.plateId === where.plateId && where.plateDrugId.in.includes(raw.plateDrugId) && raw.status === where.status)),
+      createMany: vi.fn(async ({ data }: any) => {
+        for (const raw of data) {
+          if (state.rawMics.some(item => item.plateId === raw.plateId && item.plateDrugId === raw.plateDrugId && item.status === "CURRENT")) throw new Error("duplicate current RawMic");
+          state.rawMics.push(raw);
+        }
+        return { count: data.length };
+      }),
       findFirst: async ({ where }: any) =>
         state.rawMics.find((raw) => raw.plateId === where.plateId && raw.plateDrugId === where.plateDrugId && raw.status === where.status) ?? null,
       updateMany: async ({ where, data }: any) => {
-        const raw = state.rawMics.find((item) => item.id === where.id && item.status === where.status);
-        if (!raw) return { count: 0 };
-        Object.assign(raw, data);
-        return { count: 1 };
+        const records = state.rawMics.filter(item => (typeof where.id === "object" ? where.id.in.includes(item.id) : item.id === where.id) && item.status === where.status);
+        records.forEach(item => Object.assign(item, data));
+        return { count: records.length };
       },
       create: async ({ data }: any) => {
         if (state.rawMics.some((raw) => raw.plateId === data.plateId && raw.plateDrugId === data.plateDrugId && raw.status === "CURRENT")) {
@@ -109,13 +116,20 @@ function createTx(options: {
       },
     },
     sirInterpretation: {
+      findMany: vi.fn(async ({ where }: any) => state.sirs.filter(sir => sir.plateId === where.plateId && where.plateDrugId.in.includes(sir.plateDrugId) && sir.status === where.status)),
+      createMany: vi.fn(async ({ data }: any) => {
+        for (const sir of data) {
+          if (state.sirs.some(item => item.plateId === sir.plateId && item.plateDrugId === sir.plateDrugId && item.status === "CURRENT")) throw new Error("duplicate current SirInterpretation");
+          state.sirs.push(sir);
+        }
+        return { count: data.length };
+      }),
       findFirst: async ({ where }: any) =>
         state.sirs.find((sir) => sir.plateId === where.plateId && sir.plateDrugId === where.plateDrugId && sir.status === where.status) ?? null,
       updateMany: async ({ where, data }: any) => {
-        const sir = state.sirs.find((item) => item.id === where.id && item.status === where.status);
-        if (!sir) return { count: 0 };
-        Object.assign(sir, data);
-        return { count: 1 };
+        const records = state.sirs.filter(item => (typeof where.id === "object" ? where.id.in.includes(item.id) : item.id === where.id) && item.status === where.status);
+        records.forEach(item => Object.assign(item, data));
+        return { count: records.length };
       },
       create: async ({ data }: any) => {
         if (state.sirs.some((sir) => sir.plateId === data.plateId && sir.plateDrugId === data.plateDrugId && sir.status === "CURRENT")) {
@@ -127,6 +141,7 @@ function createTx(options: {
       },
     },
     auditLog: {
+      createMany: vi.fn(async ({ data }: any) => { state.audits.push(...data); return { count: data.length }; }),
       create: async ({ data }: any) => {
         state.audits.push(data);
         return { id: `audit-${state.audits.length}`, ...data };
@@ -138,6 +153,23 @@ function createTx(options: {
 }
 
 describe("append-only plate result calculation", () => {
+  it("writes 96 drug results with one MIC batch, one SIR batch, and one audit batch", async () => {
+    const { tx, state } = createTx();
+    state.plate.drugs = Array.from({ length: 96 }, (_, index) => ({
+      id: `drug-${index}`, rowIndex: index, drugName: "Drug X", unit: "mg/L", concentrations: concentrations(),
+    }));
+    const results = await recalculatePlateResults(tx, "plate-1", actor, { breakpointSetId: "bps-1" });
+    expect(results).toHaveLength(96);
+    expect(tx.rawMic.findMany).toHaveBeenCalledTimes(1);
+    expect(tx.sirInterpretation.findMany).toHaveBeenCalledTimes(1);
+    expect(tx.rawMic.createMany).toHaveBeenCalledTimes(1);
+    expect(tx.sirInterpretation.createMany).toHaveBeenCalledTimes(1);
+    expect(tx.auditLog.createMany).toHaveBeenCalledTimes(1);
+    expect(new Set(state.rawMics.map(raw => raw.id)).size).toBe(96);
+    expect(new Set(state.sirs.map(sir => sir.id)).size).toBe(96);
+    expect(state.audits.filter(audit => audit.action === "MIC_CALCULATED")).toHaveLength(96);
+    expect(state.audits.filter(audit => audit.action === "SIR_INTERPRETED")).toHaveLength(96);
+  });
   function crossOrganismFixture() {
     const fixture = createTx({ breakpointRule: { susceptibleMax: 4, resistantMin: 16 } });
     fixture.state.breakpointSet.organism = "Staphylococcus aureus";

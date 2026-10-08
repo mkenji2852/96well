@@ -41,10 +41,10 @@ const mocks = vi.hoisted(() => {
     plateWell: { upsert: plateWellUpsert },
     imageWellOverride: { create: imageWellOverrideCreate },
     imageReview: { create: imageReviewCreate },
-    auditLog: { create: auditCreate },
+    auditLog: { create: auditCreate, createMany: vi.fn(async () => ({ count: 1 })) },
     breakpointSet: { findFirst: breakpointSetFindFirst },
-    rawMic: { findFirst: rawMicFindFirst, updateMany: rawMicUpdateMany, create: rawMicCreate },
-    sirInterpretation: { findFirst: sirFindFirst, updateMany: sirUpdateMany, create: sirCreate },
+    rawMic: { findFirst: rawMicFindFirst, findMany: vi.fn(async () => []), updateMany: rawMicUpdateMany, create: rawMicCreate, createMany: vi.fn(async ({ data }: { data: unknown[] }) => ({ count: data.length })) },
+    sirInterpretation: { findFirst: sirFindFirst, findMany: vi.fn(async () => []), updateMany: sirUpdateMany, create: sirCreate, createMany: vi.fn(async ({ data }: { data: unknown[] }) => ({ count: data.length })) },
   };
   return {
     actor,

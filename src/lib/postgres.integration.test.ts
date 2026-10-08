@@ -1,5 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { calculateBreakpointContentHash } from "./breakpoint-lifecycle";
+import { recalculatePlateResults } from "./plate-results";
 
 const postgresUrl =
   process.env.POSTGRES_TEST_DATABASE_URL ?? process.env.POSTGRES_PRISMA_DATABASE_URL;
@@ -243,6 +245,41 @@ describePostgres("PostgreSQL production hardening", () => {
     await expect(
       prisma.$executeRawUnsafe(`UPDATE "BreakpointSet" SET "status" = 'APPROVED' WHERE "id" = 'bps-pg'`),
     ).rejects.toThrow(/AST_BREAKPOINT_RETIRED_FINAL/);
+  });
+
+  it("bulk-appends 96 MIC/SIR results using the runtime role and keeps prior results", async () => {
+    const org = await prisma.organization.create({ data: { name: "Synthetic calculation test" } });
+    const user = await prisma.user.create({ data: { organizationId: org.id, name: "Synthetic reviewer", email: "bulk@example.test", role: "REVIEWER" } });
+    const draft = await prisma.breakpointSet.create({ data: {
+      organizationId: org.id, standard: "CLSI", version: "synthetic-bulk-1", organism: "E. coli",
+      rules: { create: { organizationId: org.id, drugName: "Drug X", organism: "E. coli", standard: "CLSI", version: "synthetic-bulk-1", susceptibleMax: 4, resistantMin: 16 } },
+    }, include: { rules: true } });
+    await prisma.breakpointSet.update({ where: { id: draft.id }, data: {
+      status: "APPROVED", contentHash: calculateBreakpointContentHash(draft), contentHashAlgorithm: "sha256", contentHashVersion: 1,
+      approvedAt: new Date(), approvedByUserId: user.id,
+    } });
+    const sample = await prisma.sample.create({ data: {
+      organizationId: org.id, sampleCode: "SYNTHETIC-BULK-96", organism: "E. coli", plates: { create: {
+        organizationId: org.id, name: "Synthetic plate",
+        drugs: { createMany: { data: Array.from({ length: 96 }, (_, index) => ({
+          rowIndex: index, drugName: "Drug X", concentrations: { mode: "wells", wells: [{ rowIndex: Math.floor(index / 12), columnIndex: index % 12, concentration: 8 }] },
+        })) } },
+        wells: { createMany: { data: Array.from({ length: 96 }, (_, index) => ({ rowIndex: Math.floor(index / 12), columnIndex: index % 12, state: "INHIBITED" as const, source: "MANUAL" as const })) } },
+      } },
+    }, include: { plates: true } });
+    const runtime = process.env.POSTGRES_APP_TEST_DATABASE_URL ? prismaFor(process.env.POSTGRES_APP_TEST_DATABASE_URL) : prisma;
+    try {
+      const actor = { userId: user.id, organizationId: org.id, role: "REVIEWER" as const, sessionId: "synthetic-bulk" };
+      for (let index = 0; index < 2; index++) {
+        const results = await runtime.$transaction(tx => recalculatePlateResults(tx, sample.plates[0].id, actor, { breakpointSetId: draft.id }), { maxWait: 5000, timeout: 20000 });
+        expect(results).toHaveLength(96);
+      }
+      const plateId = sample.plates[0].id;
+      expect(await runtime.rawMic.count({ where: { plateId } })).toBe(192);
+      expect(await runtime.rawMic.count({ where: { plateId, status: "CURRENT" } })).toBe(96);
+      expect(await runtime.sirInterpretation.count({ where: { plateId } })).toBe(192);
+      expect(await runtime.sirInterpretation.count({ where: { plateId, status: "CURRENT" } })).toBe(96);
+    } finally { if (runtime !== prisma) await runtime.$disconnect(); }
   });
 
   it("accepts 96 flexible drug slots and still rejects invalid well coordinates", async () => {
