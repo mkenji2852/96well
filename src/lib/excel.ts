@@ -214,12 +214,12 @@ function breakpointApplicationFields(rationale: unknown): string[] {
 function populationEntries(plate: ExportData["plate"]): Array<PopulationMic & { text: string; category: SirCategory }> {
   const current = currentRawMics(plate);
   return plate.drugs.flatMap(drug => {
-    const saved = current.find(mic => mic.plateDrugId === drug.id || (!mic.plateDrugId && mic.plateDrug.drugName === drug.drugName && mic.plateDrug.unit === drug.unit));
+    const saved = current.find(mic => mic.sourceWellRevision === plate.wellRevision && (mic.plateDrugId === drug.id || (!mic.plateDrugId && mic.plateDrug.drugName === drug.drugName && mic.plateDrug.unit === drug.unit)));
     const assignments = normalizeDrugAssignments(drug);
     if (!saved && !assignments.length) return [];
     const derived = saved ? null : calculateRawMic(assignments.map(item => item.concentration), assignments.map(item => {
       const well = plate.wells.find(well => well.rowIndex === item.rowIndex && well.columnIndex === item.columnIndex);
-      return normalizeWellState(well && (well.source === "MANUAL" || well.source === "IMAGE_REVIEWED") ? well.state : undefined);
+      return normalizeWellState(well && !well.needsReview && (well.source === "MANUAL" || well.source === "IMAGE_REVIEWED") ? well.state : undefined);
     }));
     const operator: RawMicOperator | null = saved
       ? (saved.rawMicOperator as RawMicOperator | null) ?? (saved.modifier === "EQUAL" ? "=" : saved.modifier === "LESS_THAN_OR_EQUAL" ? "<=" : saved.modifier === "GREATER_THAN" ? ">" : null)
@@ -228,6 +228,11 @@ function populationEntries(plate: ExportData["plate"]): Array<PopulationMic & { 
     return [{
       sampleId: plate.sample.id ?? plate.sampleId, organism: plate.sample.organism, drugName: drug.drugName, unit: drug.unit,
       value, operator, needsReview: saved ? saved.reviewRequired || saved.sourceWellRevision !== plate.wellRevision : derived!.needsReview,
+      exclusionReason: saved?.reviewRequired ? "保存済みMICが要確認です" : derived?.reasons.map(reason => ({
+        INVALID_LAYOUT: "濃度設定が無効です（重複濃度・0以下など）",
+        INCOMPLETE_OR_INVALID_WELL: "薬剤の対象ウェルに未入力・未承認・要確認・無効な状態があります",
+        HIGH_CONCENTRATION_REGROWTH: "高濃度側で発育が再出現しています",
+      }[reason] ?? "MICが未確定です")).join(" / "),
       text: formatMic(value, operator), category: saved ? categoryFor(currentInterpretation(saved)) : "NO_BREAKPOINT",
     }];
   });
@@ -263,7 +268,7 @@ export async function buildPopulationWorkbook(data: ExportData[]): Promise<Buffe
     keys.forEach((key, index) => {
       const [drugName, unit] = JSON.parse(key) as string[];
       if (record.entries.some(entry => entry.drugName === drugName && entry.unit === unit && entry.needsReview)) {
-        added.getCell(index * 2 + 3).note = "要確認またはウェルrevision不一致のためMIC50/MIC90集計から除外しました。";
+        added.getCell(index * 2 + 3).note = "要確認または未確定のためMIC50/MIC90集計から除外しました。MICStatisticsの除外理由を確認してください。";
       }
     });
   }
@@ -271,17 +276,18 @@ export async function buildPopulationWorkbook(data: ExportData[]): Promise<Buffe
   summary.views = [{ state: "frozen", xSplit: 2, ySplit: fields.number, showGridLines: false }];
   const statistics = workbook.addWorksheet("MICStatistics");
   configureSheet(statistics);
-  statistics.addRow(["菌名", "薬剤名", "単位", "対象Sample数", "集計数 N", "未確定・要確認除外", "重複測定除外", "境界付きMIC数", "MIC50", "MIC90"]);
+  statistics.addRow(["菌名", "薬剤名", "単位", "対象Sample数", "集計数 N", "未確定・要確認除外", "重複測定除外", "境界付きMIC数", "MIC50", "MIC90", "集計状況", "除外理由"]);
   styleHeader(statistics.getRow(1));
   for (const result of calculateMicStatistics(records.flatMap(record => record.entries))) {
     statistics.addRow([safeExcelText(result.organism ?? "未設定"), safeExcelText(result.drugName), safeExcelText(result.unit),
-      result.totalSamples, result.includedSamples, result.invalidSamples, result.duplicateSamples, result.qualifiedSamples, result.mic50, result.mic90]);
+      result.totalSamples, result.includedSamples, result.invalidSamples, result.duplicateSamples, result.qualifiedSamples, result.mic50, result.mic90,
+      result.includedSamples === 0 ? "集計対象なし" : result.includedSamples === 1 ? "N=1：MIC50/MIC90はこの1件のMIC（研究用参考値）" : "集計済み", result.exclusionReasons.join(" / ")]);
   }
-  statistics.columns = [26, 26, 14, 18, 14, 24, 20, 18, 24, 24].map(width => ({ width }));
+  statistics.columns = [26, 26, 14, 18, 14, 24, 20, 18, 24, 24, 52, 64].map(width => ({ width }));
   statistics.addRow([]);
   statistics.addRow(["方式: nearest-rank（順位 ceil(N×0.50) / ceil(N×0.90)）。希釈濃度を補間しません。"]);
   statistics.addRow(["≤ / < / ≥ / > は境界として集計し、確定できない場合は区間または未確定を表示。菌種・薬剤・単位は混ぜません。"]);
-  statistics.addRow(["同一Sampleの同一薬剤・単位の重複測定、未確定MIC、要確認結果は集計から除外。少数例もNを併記する研究用集計です。"]);
+  statistics.addRow(["集計ルール（この説明自体は除外を意味しません）：重複測定・未確定MIC・要確認結果は除外。実際の除外数と理由は各行を参照。N=1でもMIC50/MIC90を表示します。"]);
   const commonBreakpoint = data.find(item => item.metadata.breakpointSetId)?.metadata ?? data[0].metadata;
   addMethodSheet(workbook, { ...data[0], metadata: { ...data[0].metadata,
     breakpointSetId: commonBreakpoint.breakpointSetId, breakpointStandard: commonBreakpoint.breakpointStandard,

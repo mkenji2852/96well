@@ -8,6 +8,7 @@ export interface PopulationMic {
   value: number | null;
   operator: RawMicOperator | null;
   needsReview: boolean;
+  exclusionReason?: string;
 }
 
 interface Bound { value: number; open: boolean }
@@ -44,16 +45,22 @@ export function calculateMicStatistics(values: PopulationMic[]) {
     const eligible: PopulationMic[] = [];
     let duplicateSamples = 0;
     let invalidSamples = 0;
+    const exclusionReasons = new Set<string>();
     for (const sample of bySample.values()) {
-      if (sample.length !== 1) { duplicateSamples++; continue; }
+      if (sample.length !== 1) { duplicateSamples++; exclusionReasons.add("同一Sampleの同一薬剤・単位に複数の測定があります"); continue; }
       const mic = sample[0];
-      if (mic.needsReview || mic.value === null || !Number.isFinite(mic.value) || mic.value <= 0 || !mic.operator) { invalidSamples++; continue; }
+      if (mic.needsReview || mic.value === null || !Number.isFinite(mic.value) || mic.value <= 0 || !mic.operator) {
+        invalidSamples++;
+        exclusionReasons.add(mic.exclusionReason || (mic.needsReview ? "要確認のMICです" : "MICが未確定です"));
+        continue;
+      }
       eligible.push(mic);
     }
     return {
       drugName: group[0].drugName, unit: group[0].unit, organism: group[0].organism,
       totalSamples: bySample.size, includedSamples: eligible.length, invalidSamples, duplicateSamples,
       qualifiedSamples: eligible.filter(mic => mic.operator !== "=").length,
+      exclusionReasons: [...exclusionReasons],
       mic50: percentileMic(eligible, 0.5), mic90: percentileMic(eligible, 0.9),
     };
   });

@@ -172,6 +172,41 @@ function workbookText(workbook: ExcelJS.Workbook): string {
 }
 
 describe("buildPlateWorkbook privacy profiles", () => {
+  it("shows both percentiles for one confirmed sample", async () => {
+    const buffer = await buildPopulationWorkbook([{ plate: plate(), metadata: metadata("ANONYMIZED"), auditLogs: [] }]);
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer);
+    const row = workbook.getWorksheet("MICStatistics")!.getRow(2);
+    expect(row.getCell(5).value).toBe(1);
+    expect(row.getCell(9).text).toBe("2");
+    expect(row.getCell(10).text).toBe("2");
+    expect(row.getCell(12).text).toBe("");
+  });
+  it("derives statistics from current confirmed wells when saved MIC is stale without reusing stale SIR", async () => {
+    const original = plate();
+    const buffer = await buildPopulationWorkbook([{ plate: { ...original, wellRevision: 8,
+      drugs: [{ ...original.drugs[0], concentrations: [1, 2, 4] }],
+      wells: [1, 2, 4].map((_, columnIndex) => ({ ...original.wells[0], columnIndex, state: columnIndex < 2 ? "GROWTH" : "INHIBITED" })),
+    }, metadata: metadata("ANONYMIZED"), auditLogs: [] }]);
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer);
+    const row = workbook.getWorksheet("MICStatistics")!.getRow(2);
+    expect(row.getCell(5).value).toBe(1);
+    expect(row.getCell(9).text).toBe("4");
+    expect(row.getCell(10).text).toBe("4");
+    expect(workbook.getWorksheet("Summary")!.getRow(5).getCell(4).text).toBe("");
+  });
+  it("explains missing percentiles for an incomplete single sample", async () => {
+    const original = plate();
+    const buffer = await buildPopulationWorkbook([{ plate: { ...original, rawMics: [] }, metadata: metadata("ANONYMIZED"), auditLogs: [] }]);
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer);
+    const row = workbook.getWorksheet("MICStatistics")!.getRow(2);
+    expect(row.getCell(5).value).toBe(0);
+    expect(row.getCell(9).text).toBe("");
+    expect(row.getCell(11).text).toBe("集計対象なし");
+    expect(row.getCell(12).text).toContain("未入力");
+  });
   it("exports multiple samples as rows with MIC50/MIC90 and no private fields", async () => {
     const samples = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512].map((value, index) => {
       const original = plate();
