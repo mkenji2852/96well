@@ -173,7 +173,7 @@ function configureSheet(sheet: ExcelJS.Worksheet): void {
 }
 
 function currentRawMics(plate: ExportData["plate"]) {
-  return plate.rawMics.filter((mic) => mic.status === "CURRENT");
+  return plate.rawMics.filter((mic) => mic.status === "CURRENT" && mic.sourceWellRevision === plate.wellRevision);
 }
 
 function currentInterpretation(mic: ExportData["plate"]["rawMics"][number]) {

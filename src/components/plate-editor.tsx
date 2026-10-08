@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useApplicationToolbar } from "@/components/application-toolbar";
 import type { ChangeEvent, FormEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
 import { buildWellDrugDetailMap } from "@/lib/drug-layout";
+import { formatMic } from "@/lib/mic";
+import { COMMON_ORGANISMS } from "@/lib/organisms";
 import {
   deleteLocalDraft,
   flushSyncQueue,
@@ -295,15 +297,22 @@ export function PlateEditor({
   onLocaleChange,
   onBack,
   onDeleteSample,
+  deletingSample = false,
+  deleteLogs = [],
 }: {
   plate: PlateView;
   locale: Locale;
   onLocaleChange: (locale: Locale) => void;
   onBack: () => void;
   onDeleteSample?: () => void;
+  deletingSample?: boolean;
+  deleteLogs?: string[];
 }) {
   const [wells, setWells] = useState<PlateStateMap>(() => createInitialStates(plate));
   const [details, setDetails] = useState<WellDetailsMap>(() => createInitialDetails(plate));
+  const [organism, setOrganism] = useState(plate.sample.organism ?? "");
+  const [savedOrganism, setSavedOrganism] = useState(plate.sample.organism ?? null);
+  const [displayResults, setDisplayResults] = useState<NonNullable<PlateView["results"]>>(plate.results ?? []);
   const [bulkState, setBulkState] = useState<UiWellState>("NO_GROWTH");
   const [selectedKey, setSelectedKey] = useState(wellKey(0, 0));
   const [history, setHistory] = useState<HistoryEntry[]>([]);
@@ -350,12 +359,13 @@ export function PlateEditor({
   const emptyCount = countEmptyWells(wells);
   const exportProfiles = useMemo(() => allowedExportProfiles(actorRole), [actorRole]);
   const selectedBreakpointSet = useMemo(
-    () => breakpointSets.find((set) => set.id === selectedBreakpointSetId) ?? plate.selectedBreakpointSet ?? null,
+    () => breakpointSets.find((set) => set.id === selectedBreakpointSetId) ?? (plate.selectedBreakpointSet?.id === selectedBreakpointSetId ? plate.selectedBreakpointSet : null),
     [breakpointSets, plate.selectedBreakpointSet, selectedBreakpointSetId],
   );
-  const organismMismatch = Boolean(selectedBreakpointSet?.organism && selectedBreakpointSet.organism !== plate.sample.organism);
+  const organismMismatch = Boolean(selectedBreakpointSet?.organism && selectedBreakpointSet.organism !== organism.trim());
 
   const buildPayload = (states: PlateStateMap, revision = serverRevision): SavePlateRequest => ({
+    ...(organism.trim() !== (savedOrganism ?? "") ? { organism: organism.trim() || null, expectedOrganism: savedOrganism } : {}),
     expectedRevision: revision,
     wells: statesToWellInputs(states),
     breakpointSetId: selectedBreakpointSetId || undefined,
@@ -375,6 +385,8 @@ export function PlateEditor({
       setBaseWells(localPayload.wells);
       setConflictState(null);
       setDirty(false);
+      if (localPayload.organism !== undefined) setSavedOrganism(localPayload.organism);
+      setDisplayResults(result.results ?? []);
       setMessage(successMessage);
       return;
     }
@@ -426,7 +438,7 @@ export function PlateEditor({
         if (cancelled) return;
         setBreakpointSets((data.breakpointSets ?? []) as BreakpointSetView[]);
       })
-      .catch(() => undefined);
+      .catch(() => { if (!cancelled) setErrors(["BreakpointSetを取得できませんでした。ログイン状態と通信を確認してください。"]); });
     return () => { cancelled = true; };
   }, []);
 
@@ -449,6 +461,12 @@ export function PlateEditor({
       const draft = await loadLocalDraft(plate.id, currentActor);
       if (cancelled) return;
       if (draft) {
+        setDisplayResults([]);
+        if (draft.payload.organism !== undefined) setOrganism(draft.payload.organism ?? "");
+        if (draft.payload.expectedOrganism !== undefined) setSavedOrganism(draft.payload.expectedOrganism);
+        if (draft.payload.breakpointSetId) setSelectedBreakpointSetId(draft.payload.breakpointSetId);
+        setAllowOrganismMismatch(draft.payload.allowOrganismMismatch ?? false);
+        setBreakpointChangeReason(draft.payload.breakpointChangeReason ?? "");
         setWells(statesFromWellInputs(draft.payload.wells));
         setBaseWells(draft.baseWells);
         setServerRevision(draft.baseRevision);
@@ -470,7 +488,7 @@ export function PlateEditor({
       saveLocalDraft(plate.id, actor, buildPayload(wells), serverRevision, baseWells, details).catch(() => undefined);
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [actor, baseWells, details, plate.id, serverRevision, wells]);
+  }, [actor, baseWells, details, plate.id, serverRevision, wells, organism, savedOrganism, selectedBreakpointSetId, allowOrganismMismatch, breakpointChangeReason]);
 
   useEffect(() => {
     if (!actor) return;
@@ -533,6 +551,7 @@ export function PlateEditor({
   }, [wellContextMenu]);
 
   const commit = (nextStates: PlateStateMap, nextDetails = details) => {
+    setDisplayResults([]);
     setHistory((current) => [...current.slice(-29), { states: { ...wells }, details: cloneDetails(details) }]);
     setWells(nextStates);
     setDetails(nextDetails);
@@ -789,8 +808,8 @@ export function PlateEditor({
         <div className="brand-copy"><strong>MIC Plate</strong><small>RECORDER</small></div>
         <div className="header-empty-count" aria-live="polite"><b>{emptyCount}</b><span>{t.remaining}</span></div>
         {onDeleteSample && (
-          <button type="button" className="secondary-button header-delete-button danger-action" onClick={onDeleteSample}>
-            {t.deleteSample}
+          <button type="button" disabled={saving || deletingSample} className="secondary-button header-delete-button danger-action" onClick={onDeleteSample}>
+            {deletingSample ? "削除中…" : t.deleteSample}
           </button>
         )}
         <button className="language-button" onClick={() => onLocaleChange(locale === "ja" ? "en" : "ja")}>{locale === "ja" ? "EN" : "日本語"}</button>
@@ -800,7 +819,11 @@ export function PlateEditor({
         <div>
           <p className="eyebrow">{plate.sample.sampleCode}</p>
           <h1>{t.title}</h1>
-          <p>{plate.sample.organism ?? t.organismUnset}</p>
+          <label>{locale === "ja" ? "菌名（保存時に変更）" : "Organism (updated on save)"}
+            <input list="plate-organisms" value={organism} maxLength={120} disabled={saving} onChange={event => { setOrganism(event.target.value); setDirty(true); setDisplayResults([]); setAllowOrganismMismatch(false); }} />
+            <datalist id="plate-organisms">{COMMON_ORGANISMS.map(name => <option key={name} value={name} />)}</datalist>
+          </label>
+          <small>菌名は同じSampleの全プレートに共通です。変更後は各プレートの再判定が必要です。</small>
         </div>
         <div className="connection-badge"><span />{t.autosave} / rev {serverRevision}</div>
       </section>
@@ -956,6 +979,8 @@ export function PlateEditor({
                 setSelectedBreakpointSetId(event.target.value);
                 setAllowOrganismMismatch(false);
                 setBreakpointChangeReason("");
+                setDisplayResults([]);
+                setDirty(true);
               }}
               disabled={saving}
             >
@@ -968,7 +993,7 @@ export function PlateEditor({
             </select>
           </label>
           {organismMismatch && <div className="breakpoint-retired-note" role="note">
-            <p>Sample菌種: {plate.sample.organism || "未設定"} ／ Breakpoint対象菌種: {selectedBreakpointSet?.organism}</p>
+            <p>Sample菌種: {organism || "未設定"} ／ Breakpoint対象菌種: {selectedBreakpointSet?.organism}</p>
             <label>
               <input type="checkbox" checked={allowOrganismMismatch} disabled={saving} onChange={(event) => setAllowOrganismMismatch(event.target.checked)} />
               異なる菌種のBreakpointを研究用に任意適用する（臨床判定には使用しない）
@@ -992,6 +1017,18 @@ export function PlateEditor({
               <span>{selectedBreakpointSet.organism ?? "全菌種"} / {selectedBreakpointSet.status}</span>
             </div>
           )}
+        </div>
+      </section>
+      {deleteLogs.length > 0 && <section className="plate-validation" role="status" aria-live="polite"><strong>Sample削除の処理ログ</strong><ul>{deleteLogs.map((line, index) => <li key={index}>{line}</li>)}</ul></section>}
+
+      <section className="export-panel" aria-labelledby="result-title">
+        <div><h2 id="result-title">MIC / Breakpoint判定結果（研究用）</h2>
+          <p>BreakpointSetを選択して保存すると判定されます。判定しない場合もウェル保存は可能です。</p>
+          {displayResults.length === 0 ? <p>現在の入力に対する保存済み判定はありません。使用するBreakpointSetを選択して保存してください。</p> :
+            <table><thead><tr><th>薬剤</th><th>MIC</th><th>判定</th><th>Breakpoint版</th></tr></thead><tbody>
+              {displayResults.map(result => <tr key={result.rawMicId}><td>{result.drugName}</td><td>{formatMic(result.value, result.rawMicOperator ?? result.modifier)}</td>
+                <td>{result.needsReview ? "要確認（正式判定ではありません）" : result.category === "NO_BREAKPOINT" ? "該当する薬剤・菌種のルールなし" : result.category === "NOT_DETERMINED" ? "要確認・判定不可" : result.category}</td><td>{result.breakpointVersion ?? "—"}</td></tr>)}
+            </tbody></table>}
         </div>
       </section>
 

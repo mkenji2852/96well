@@ -308,7 +308,7 @@ export async function GET(request: Request, { params }: RouteContext) {
         approvedAt: selectedBreakpointSet.approvedAt?.toISOString() ?? null,
       } : null,
       drugs: plate.drugs.map((drug) => ({ ...drug, concentrations: drug.concentrations as number[] })),
-      results: plate.rawMics.map((mic) => ({
+      results: plate.rawMics.filter(mic => mic.sourceWellRevision === plate.wellRevision).map((mic) => ({
         rawMicId: mic.id,
         sirInterpretationId: mic.interpretations[0]?.id ?? null,
         breakpointSetId: mic.breakpointSetId,
@@ -317,6 +317,7 @@ export async function GET(request: Request, { params }: RouteContext) {
         rawMicOperator: mic.rawMicOperator as RawMicOperator | null,
         modifier: mic.modifier,
         category: mic.interpretations[0]?.category ?? "NOT_DETERMINED",
+        needsReview: mic.reviewRequired,
         breakpointVersion: mic.interpretations[0]?.ruleVersion ?? null,
         calculationEngineVersion: mic.calculationEngineVersion,
         ruleEngineVersion: mic.interpretations[0]?.ruleEngineVersion ?? null,
@@ -369,6 +370,7 @@ export async function PUT(request: Request, { params }: RouteContext) {
       breakpointSetId: parsed.data.breakpointSetId,
       breakpointChangeReason: parsed.data.breakpointChangeReason ?? null,
       ...(parsed.data.allowOrganismMismatch ? { allowOrganismMismatch: true } : {}),
+      ...(parsed.data.organism !== undefined ? { organism: parsed.data.organism, expectedOrganism: parsed.data.expectedOrganism } : {}),
       wells: parsed.data.wells,
     });
 
@@ -397,6 +399,22 @@ export async function PUT(request: Request, { params }: RouteContext) {
       });
       if (!plate) return { kind: "not_found" as const };
 
+      const updateOrganism = async () => {
+        if (parsed.data.organism !== undefined && parsed.data.organism !== plate.sample.organism) {
+          if (parsed.data.expectedOrganism === undefined || parsed.data.expectedOrganism !== plate.sample.organism) {
+            throw new ResultCalculationError("RESULT_RECALCULATION_CONFLICT", "菌名が他の操作で変更されています。再読み込みしてください。");
+          }
+          const changed = await tx.sample.updateMany({
+            where: { id: plate.sample.id, organizationId: currentActor.organizationId, organism: parsed.data.expectedOrganism },
+            data: { organism: parsed.data.organism || null },
+          });
+          if (changed.count !== 1) throw new ResultCalculationError("RESULT_RECALCULATION_CONFLICT", "菌名の変更が競合しました。再読み込みしてください。");
+          // Invalidate sibling plates without modifying historical MIC/SIR records.
+          await tx.plate.updateMany({ where: { sampleId: plate.sample.id, organizationId: currentActor.organizationId, id: { not: id } }, data: { wellRevision: { increment: 1 } } });
+          await tx.auditLog.create({ data: { actorId: currentActor.userId, actorLabel: currentActor.userId, action: "SAMPLE_ORGANISM_UPDATED", entityType: "Sample", entityId: plate.sample.id,
+            beforeJson: { organism: plate.sample.organism }, afterJson: { organism: parsed.data.organism || null, organizationId: currentActor.organizationId, plateId: id } } });
+        }
+      };
       const now = new Date();
       await tx.auditLog.create({
         data: {
@@ -455,6 +473,7 @@ export async function PUT(request: Request, { params }: RouteContext) {
       }
 
       const confirmedAt = new Date();
+      await updateOrganism();
       await bulkUpsertPlateWells(tx, {
         plateId: id,
         wells: parsed.data.wells,

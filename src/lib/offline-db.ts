@@ -1,6 +1,6 @@
 import Dexie, { type EntityTable } from "dexie";
 import type { WellDetailsMap } from "@/lib/plate-ui";
-import type { SavePlateRequest, WellInput } from "@/types/domain";
+import type { SavePlateRequest, WellInput, PlateView } from "@/types/domain";
 
 export type OfflineSyncStatus = "DRAFT" | "QUEUED" | "SYNCING" | "CONFLICT" | "FAILED" | "SYNCED";
 
@@ -81,6 +81,7 @@ export interface OfflineSyncResult {
   plateId?: string;
   status?: OfflineSyncStatus;
   resultingRevision?: number;
+  results?: PlateView["results"];
   conflict?: RevisionConflictPayload;
   errorCode?: string;
   message?: string;
@@ -451,11 +452,12 @@ async function syncQueueItem(item: SyncQueueItemV2): Promise<OfflineSyncResult> 
     });
     const data = await response.json().catch(() => null) as {
       wellRevision?: number;
+      results?: PlateView["results"];
       error?: { code?: string; message?: string };
       conflict?: RevisionConflictPayload;
     } | null;
 
-    if (response.ok) return markSynced(item, data?.wellRevision ?? item.baseRevision + 1);
+    if (response.ok) return { ...await markSynced(item, data?.wellRevision ?? item.baseRevision + 1), results: data?.results };
     if (response.status === 409 && data?.conflict) return markConflict(item, data.conflict);
     if (response.status === 401) return markQueueFailure(item, "UNAUTHENTICATED", "ログイン状態の回復後に再試行してください。", false);
     if (response.status === 403 || response.status === 404) return markQueueFailure(item, data?.error?.code ?? String(response.status), data?.error?.message ?? "このdraftは同期できません。", false);

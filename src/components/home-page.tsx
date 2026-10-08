@@ -13,7 +13,7 @@ type Stage = "sample" | "layout" | "settings" | "imageBatch";
 type LayoutMode = "sample" | "template";
 
 interface ApiErrorPayload {
-  error?: string | { code?: string; message?: string; stage?: string };
+  error?: string | { code?: string; message?: string; stage?: string; diagnosticCode?: string | null };
 }
 
 interface SampleListItem {
@@ -296,6 +296,7 @@ function hasInvalidDrugConfig(drugs: DrugConfigInput[]): boolean {
 }
 
 export default function Home() {
+  const deleteRequestInFlight = useRef(false);
   const [locale, setLocale] = useState<Locale>("ja");
   const [stage, setStage] = useState<Stage>("sample");
   const [layoutMode, setLayoutMode] = useState<LayoutMode>("sample");
@@ -549,6 +550,7 @@ export default function Home() {
 
   const openPlate = async (plateId = selectedPlateId) => {
     if (!plateId) return;
+    setDeleteLogs([]);
     setBusy(true);
     setError("");
     try {
@@ -564,6 +566,7 @@ export default function Home() {
   };
 
   const openCreatedPlate = async (data: CreatedSampleResponse) => {
+    setDeleteLogs([]);
     const created = data.plate;
     if (!created.name || !created.status || created.wellRevision === undefined || !created.drugs || !data.sample) {
       await openPlate(created.id);
@@ -580,7 +583,9 @@ export default function Home() {
   };
 
   const deleteSample = async (sampleId: string, code: string) => {
+    if (deleteRequestInFlight.current) return;
     if (!window.confirm(`${code}\n${t.deleteSampleConfirm}`)) return;
+    deleteRequestInFlight.current = true;
     setBusy(true);
     setError("");
     setDeleteLogs([`削除開始: ${code}`]);
@@ -594,6 +599,7 @@ export default function Home() {
           ...current,
           `削除失敗: ${message}`,
           ...(typeof data.error === "object" && data.error?.stage ? [`停止stage: ${data.error.stage}`] : []),
+          ...(typeof data.error === "object" && data.error?.diagnosticCode ? [`診断コード: ${data.error.diagnosticCode}`] : []),
         ]);
         throw new Error(message);
       }
@@ -627,6 +633,7 @@ export default function Home() {
     } catch (caught) {
       setError(userFacingError(caught, "Sample delete failed"));
     } finally {
+      deleteRequestInFlight.current = false;
       setBusy(false);
     }
   };
@@ -1031,6 +1038,8 @@ export default function Home() {
         onLocaleChange={setLocale}
         onBack={returnHome}
         onDeleteSample={() => deleteSample(plate.sample.id, plate.sample.sampleCode)}
+        deletingSample={busy}
+        deleteLogs={deleteLogs}
       />
     );
   }

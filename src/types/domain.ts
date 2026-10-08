@@ -83,6 +83,8 @@ export interface WellInput {
 }
 
 export interface SavePlateRequest {
+  organism?: string | null;
+  expectedOrganism?: string | null;
   wells: WellInput[];
   breakpointSetId?: string;
   breakpointChangeReason?: string;
@@ -148,6 +150,7 @@ export interface PlateView {
     rawMicOperator: RawMicOperator | null;
     modifier: MicModifier;
     category: SirCategory;
+    needsReview?: boolean;
     breakpointVersion: string | null;
     calculationEngineVersion: string;
     ruleEngineVersion: string | null;

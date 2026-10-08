@@ -69,6 +69,7 @@ describe("DELETE /api/samples/:id", () => {
       params: Promise.resolve({ id: "sample-1" }),
     });
     expect(response.status).toBe(200);
+    expect(mocks.transaction).toHaveBeenCalledWith(expect.any(Function), { maxWait: 5000, timeout: 30000 });
     await expect(response.json()).resolves.toMatchObject({
       deletedSampleId: "sample-1",
       deleteSummary: {
@@ -101,5 +102,16 @@ describe("DELETE /api/samples/:id", () => {
         stage: "delete-image-review-children",
       },
     });
+  });
+
+  it("reports transaction timeout without exposing internal database details", async () => {
+    vi.spyOn(console, "error").mockImplementationOnce(() => undefined);
+    mocks.deleteMany.mockRejectedValueOnce(Object.assign(new Error("private connection string"), { code: "P2028" }));
+    const response = await DELETE(new Request("http://localhost/api/samples/sample-1", { method: "DELETE" }), { params: Promise.resolve({ id: "sample-1" }) });
+    const data = await response.json();
+    expect(response.status).toBe(500);
+    expect(data.error.diagnosticCode).toBe("P2028");
+    expect(data.error.message).toContain("時間切れ");
+    expect(JSON.stringify(data)).not.toContain("private connection string");
   });
 });

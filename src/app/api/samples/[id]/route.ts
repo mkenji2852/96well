@@ -110,7 +110,7 @@ export async function DELETE(request: Request, { params }: RouteContext) {
         },
       });
       return { sample, summary };
-    });
+    }, { maxWait: 5000, timeout: 30000 });
 
     if (!result) {
       return NextResponse.json(
@@ -133,15 +133,17 @@ export async function DELETE(request: Request, { params }: RouteContext) {
       error: {
         name: error instanceof Error ? error.name : typeof error,
         code: errorCode,
-        message: error instanceof Error ? error.message : "Sample delete failed",
       },
     }));
     return NextResponse.json(
       {
         error: {
           code: "SAMPLE_DELETE_FAILED",
-          message: "Sampleの削除に失敗しました。DB権限または関連データの制約を確認してください。",
+          message: errorCode === "P2028" ? "削除処理が時間切れになりました。削除は完了していません。時間をおいて再試行してください。"
+            : errorCode === "P2003" ? "関連データの制約により削除できませんでした。管理者へ停止箇所とコードをお伝えください。"
+            : "Sampleの削除に失敗しました。管理者へ停止箇所と診断コードをお伝えください。",
           stage: deleteStage,
+          diagnosticCode: /^P\d{4}$/.test(errorCode) ? errorCode : null,
         },
       },
       { status: 500 },

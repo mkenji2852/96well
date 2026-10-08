@@ -207,6 +207,18 @@ describe("buildPlateWorkbook privacy profiles", () => {
     expect(row.getCell(11).text).toBe("集計対象なし");
     expect(row.getCell(12).text).toContain("未入力");
   });
+
+  it("does not export old SIR as a current result after a sample organism revision changes", async () => {
+    const original = plate();
+    const buffer = await buildPlateWorkbook({ plate: { ...original, wellRevision: 8 }, metadata: metadata("ANONYMIZED"), auditLogs: [] });
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer);
+    const summary = workbook.getWorksheet("Summary")!;
+    let sampleRow = 0;
+    summary.eachRow(row => { if (row.getCell(1).text === "'=S-001") sampleRow = row.number; });
+    expect(sampleRow).toBeGreaterThan(0);
+    expect(summary.getRow(sampleRow).getCell(3).text).toBe("");
+  });
   it("exports multiple samples as rows with MIC50/MIC90 and no private fields", async () => {
     const samples = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512].map((value, index) => {
       const original = plate();

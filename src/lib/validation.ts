@@ -153,6 +153,8 @@ function hasUniqueWellCoordinates(wells: Array<{ rowIndex: number; columnIndex: 
 }
 
 export const savePlateSchema = z.object({
+  organism: z.string().trim().max(120).nullable().optional(),
+  expectedOrganism: z.string().trim().max(120).nullable().optional(),
   wells: z.array(z.object({
     rowIndex: z.number().int().min(0).max(7),
     columnIndex: z.number().int().min(0).max(11),

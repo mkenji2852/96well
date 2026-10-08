@@ -18,6 +18,7 @@ test("flexible template coordinates remain unchanged in the input screen", async
     } else await route.fulfill({ json: { samples: [{ ...sample, plates: [plate] }] } });
   });
   await page.route("**/api/plates/plate-layout", route => route.fulfill({ json: plate }));
+  await page.route("**/api/samples/sample-layout", route => route.fulfill({ status: 500, json: { error: { code: "SAMPLE_DELETE_FAILED", message: "時間切れです", stage: "delete-plate-wells", diagnosticCode: "P2028" } } }));
   await page.goto("/");
   await page.getByLabel("Sample-ID", { exact: true }).fill("S-layout");
   await page.getByRole("button", { name: "プレート入力へ", exact: true }).click();
@@ -30,6 +31,10 @@ test("flexible template coordinates remain unchanged in the input screen", async
     await expect(page.getByRole("button", { name: "A1: 未入力", exact: true })).not.toContainText("Ampicillin");
   };
   await assertLayout();
+  page.once("dialog", dialog => dialog.accept());
+  await page.getByRole("button", { name: "Sample削除", exact: true }).click();
+  await expect(page.getByText("診断コード: P2028")).toBeVisible();
+  await expect(page.getByText("停止stage: delete-plate-wells")).toBeVisible();
   await page.getByRole("button", { name: "初期画面へ戻る" }).click();
   await page.getByRole("button", { name: "選択したプレートを開く" }).click();
   await assertLayout();
@@ -126,10 +131,12 @@ test("mobile plate entry supports state, bulk apply, details, validation, and sa
       const body = route.request().postDataJSON();
       expect(route.request().headers()["if-match"]).toBe("0");
       expect(body.expectedRevision).toBe(0);
+      expect(body.organism).toBe("E. coli research");
+      expect(body.expectedOrganism).toBe("E. coli");
       expect(body.allowOrganismMismatch).toBe(true);
       expect(body.breakpointChangeReason).toBe("Research comparison");
       expect(body.idempotencyKey).toEqual(expect.stringContaining("plate-save:org-a:tech-1:plate-1:"));
-      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ plateId: plate.id, status: "DRAFT", wellRevision: 1, results: [] }) });
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ plateId: plate.id, status: "DRAFT", wellRevision: 1, results: [{ rawMicId: "raw-saved", drugName: "Drug X", value: 8, rawMicOperator: "=", modifier: "EQUAL", category: "I", breakpointVersion: "2026.1" }] }) });
     } else {
       plateReadCount++;
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(plate) });
@@ -162,6 +169,7 @@ test("mobile plate entry supports state, bulk apply, details, validation, and sa
 
   await expect(page.locator(".ui-well")).toHaveCount(96);
   expect(plateReadCount).toBe(0);
+  await page.getByLabel("菌名（保存時に変更）").fill("E. coli research");
   await expect(page.getByRole("button", { name: "初期画面へ戻る" })).toBeVisible();
   await expect(page.locator(".plate-action-bar")).toHaveCSS("position", "fixed");
   await expect(page.locator(".plate-app-header")).toHaveCSS("position", "sticky");
@@ -202,4 +210,5 @@ test("mobile plate entry supports state, bulk apply, details, validation, and sa
 
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByText("プレートを保存しました。")).toBeVisible();
+  await expect(page.locator("tr").filter({ hasText: "Drug X" }).filter({ hasText: "2026.1" })).toContainText("I");
 });

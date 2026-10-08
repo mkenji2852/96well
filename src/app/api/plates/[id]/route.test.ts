@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 const mocks = vi.hoisted(() => {
   const actor = { userId: "user-a", organizationId: "org-a", role: "TECHNICIAN" as const, sessionId: "session-a" };
   const tx = {
+    sample: { updateMany: vi.fn(async () => ({ count: 1 })) },
     plate: {
       findFirst: vi.fn(),
       updateMany: vi.fn(),
@@ -58,7 +59,7 @@ const plate = (revision = 3) => ({
   status: "DRAFT",
   wellRevision: revision,
   updatedAt: new Date("2026-06-23T01:02:03.000Z"),
-  sample: { id: "sample-1" },
+  sample: { id: "sample-1", organism: "E. coli" },
   drugs: [],
   wells: [{ rowIndex: 0, columnIndex: 0, state: "UNREAD" }],
 });
@@ -101,6 +102,7 @@ describe("PUT /api/plates/[id] offline sync safety", () => {
     mocks.tx.plateWell.upsert.mockResolvedValue({});
     mocks.tx.$executeRaw.mockResolvedValue(96);
     mocks.tx.auditLog.create.mockResolvedValue({ id: "audit-1" });
+    mocks.auditCreateOutside.mockResolvedValue({ id: "audit-failure" });
     mocks.tx.idempotencyRecord.create.mockResolvedValue({ id: "idem-record-1" });
     mocks.recalculatePlateResults.mockResolvedValue([]);
   });
@@ -143,6 +145,26 @@ describe("PUT /api/plates/[id] offline sync safety", () => {
     expect(mocks.recalculatePlateResults).toHaveBeenCalledWith(expect.anything(), "plate-1", expect.anything(), {
       breakpointSetId: "bps-1", breakpointChangeReason: "Research comparison", allowOrganismMismatch: true,
     });
+  });
+
+  it("changes organism atomically with plate save and invalidates sibling result revisions", async () => {
+    const response = await PUT(request(payload({ organism: "Klebsiella pneumoniae", expectedOrganism: "E. coli" })), routeContext);
+    expect(response.status).toBe(200);
+    expect(mocks.tx.sample.updateMany).toHaveBeenCalledWith({ where: { id: "sample-1", organizationId: "org-a", organism: "E. coli" }, data: { organism: "Klebsiella pneumoniae" } });
+    expect(mocks.tx.plate.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: { sampleId: "sample-1", organizationId: "org-a", id: { not: "plate-1" } }, data: { wellRevision: { increment: 1 } } }));
+    expect(mocks.tx.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: "SAMPLE_ORGANISM_UPDATED", actorId: "user-a" }) }));
+  });
+
+  it("does not change organism when the plate revision is stale", async () => {
+    mocks.tx.plate.findFirst.mockResolvedValue(plate(4));
+    expect((await PUT(request(payload({ organism: "Klebsiella pneumoniae", expectedOrganism: "E. coli" })), routeContext)).status).toBe(409);
+    expect(mocks.tx.sample.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("rejects organism changes without the previous organism precondition", async () => {
+    expect((await PUT(request(payload({ organism: "Klebsiella pneumoniae" })), routeContext)).status).toBe(409);
+    expect(mocks.tx.sample.updateMany).not.toHaveBeenCalled();
+    expect(mocks.tx.$executeRaw).not.toHaveBeenCalled();
   });
 
   it("returns a conflict payload and does not write wells when the server revision changed", async () => {
