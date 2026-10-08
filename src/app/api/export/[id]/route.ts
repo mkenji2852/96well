@@ -205,7 +205,13 @@ export async function GET(request: Request, { params }: RouteContext) {
       const currentRawMics = plate.rawMics.filter((mic) => mic.status === "CURRENT");
       const currentInterpretations = currentRawMics.flatMap((mic) => mic.interpretations.filter((item) => item.status === "CURRENT"));
       const currentBreakpointSetIds = new Set(currentRawMics.map((mic) => mic.breakpointSetId).filter(Boolean));
-      const currentStandardVersions = new Set(currentInterpretations.map((item) => `${item.standard ?? ""}:${item.ruleVersion ?? ""}`));
+      // NO_BREAKPOINT has no applied standard/version; it is not a second edition.
+      // Only that precise case is excluded, so incomplete or inconsistent metadata
+      // on an actual interpretation still participates in the fail-closed checks.
+      const versionedInterpretations = currentInterpretations.filter(item => !(
+        item.category === "NO_BREAKPOINT" && item.standard == null && item.ruleVersion == null
+      ));
+      const currentStandardVersions = new Set(versionedInterpretations.map((item) => `${item.standard ?? ""}:${item.ruleVersion ?? ""}`));
       if (requestedBreakpointSetId && [...currentBreakpointSetIds].some((value) => value !== requestedBreakpointSetId)) {
         throw new ExportRequestError("BREAKPOINT_SET_NOT_SAVED_AS_CURRENT", "指定されたbreakpointSetは現在結果として保存されていません。", 409);
       }
@@ -215,7 +221,7 @@ export async function GET(request: Request, { params }: RouteContext) {
       if (currentStandardVersions.size > 1 && !(profile === "AUDIT_FULL" && allowMixedBreakpointSets)) {
         throw new ExportRequestError("MIXED_BREAKPOINT_VERSIONS_REQUIRE_AUDIT", "1ファイル内でbreakpoint標準/版が混在するため通常出力を拒否しました。", 409);
       }
-      if (requestedStandard && currentInterpretations.some((item) => item.standard !== requestedStandard || item.ruleVersion !== requestedVersion)) {
+      if (requestedStandard && versionedInterpretations.some((item) => item.standard !== requestedStandard || item.ruleVersion !== requestedVersion)) {
         throw new ExportRequestError("INTERPRETATION_VERSION_NOT_SAVED", "指定されたbreakpoint標準/版は現在結果と一致しません。", 409);
       }
 
@@ -260,7 +266,7 @@ export async function GET(request: Request, { params }: RouteContext) {
       const exportedImageReviewIds = profile === "ANONYMIZED"
         ? []
         : plate.imageAssessments.flatMap((assessment) => assessment.reviews.map((review) => review.id));
-      const selectedInterpretation = currentInterpretations[0] ?? null;
+      const selectedInterpretation = versionedInterpretations[0] ?? currentInterpretations[0] ?? null;
       const selectedBreakpointSetId = currentBreakpointSetIds.size === 1 ? breakpointSetIds[0] : null;
       const selectedBreakpointSet = selectedBreakpointSetId
         ? await tx.breakpointSet.findFirst({

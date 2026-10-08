@@ -264,6 +264,32 @@ describe("GET /api/export/[id] privacy profiles", () => {
     expect(mocks.buildPlateWorkbook).not.toHaveBeenCalled();
   });
 
+  it("exports a single edition alongside NO_BREAKPOINT and keeps both snapshot result IDs", async () => {
+    const withoutRule = currentRawMic({ id: "raw-no-rule", interpretations: [{
+      ...currentRawMic().interpretations[0], id: "sir-no-rule", category: "NO_BREAKPOINT", standard: null, ruleVersion: null,
+    }] });
+    mocks.tx.plate.findFirst.mockResolvedValue(plate({ rawMics: [withoutRule, currentRawMic()] }));
+    const response = await GET(request("?standard=CLSI&version=2026.1"), routeContext);
+    expect(response.status).toBe(200);
+    expect(mocks.buildPlateWorkbook).toHaveBeenCalledWith(expect.objectContaining({
+      metadata: expect.objectContaining({ breakpointStandard: "CLSI", breakpointVersion: "2026.1", snapshot: expect.objectContaining({
+        rawMicIds: ["raw-no-rule", "raw-1"], sirInterpretationIds: ["sir-no-rule", "sir-1"],
+      }) }),
+    }));
+  });
+
+  it.each([
+    ["CLSI", "2027.1"], ["EUCAST", "2026.1"],
+  ])("still rejects genuine mixed standard/version: %s %s", async (standard, version) => {
+    mocks.tx.plate.findFirst.mockResolvedValue(plate({ rawMics: [currentRawMic(), currentRawMic({
+      id: "raw-other", interpretations: [{ ...currentRawMic().interpretations[0], id: "sir-other", standard, ruleVersion: version }],
+    })] }));
+    const response = await GET(request(), routeContext);
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe("MIXED_BREAKPOINT_VERSIONS_REQUIRE_AUDIT");
+    expect(mocks.buildPlateWorkbook).not.toHaveBeenCalled();
+  });
+
   it("rejects unapproved breakpoint sets", async () => {
     mocks.state.actor.role = "REVIEWER";
     mocks.tx.breakpointSet.findMany.mockResolvedValue([approvedBreakpointSet("bps-1", { status: "DRAFT" })]);
