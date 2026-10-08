@@ -1025,6 +1025,7 @@ export default function Home() {
   if (plate) {
     return (
       <PlateEditor
+        key={plate.id}
         plate={plate}
         locale={locale}
         onLocaleChange={setLocale}

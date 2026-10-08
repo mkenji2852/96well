@@ -27,6 +27,7 @@ import {
   applyStateToRow,
   countEmptyWells,
   createEmptyPlate,
+  restoreLayoutDetails,
   cycleWellState,
   toApiWellState,
   toUiWellState,
@@ -451,7 +452,7 @@ export function PlateEditor({
         setWells(statesFromWellInputs(draft.payload.wells));
         setBaseWells(draft.baseWells);
         setServerRevision(draft.baseRevision);
-        if (draft.details) setDetails({ ...createInitialDetails(plate), ...draft.details });
+        if (draft.details) setDetails(restoreLayoutDetails(createInitialDetails(plate), draft.details));
         if (draft.syncStatus === "CONFLICT") setMessage(t.conflict);
       }
       if (typeof navigator !== "undefined" && navigator.onLine) {
@@ -1103,10 +1104,11 @@ export function PlateEditor({
               <button type="button" className="modal-close" aria-label={locale === "ja" ? "閉じる" : "Close"} onClick={() => setEditingKey(null)}>×</button>
             </header>
             <form onSubmit={updateDetails}>
-              <label><span>drug_name</span><input value={detailDraft.drugName} onChange={(event) => setDetailDraft({ ...detailDraft, drugName: event.target.value })} /></label>
+              <p>{locale === "ja" ? "薬剤名・濃度・配置は作成済みプレートの設定に固定されています。変更する場合はテンプレートを編集して新しいプレートを作成してください。" : "Drug assignments are fixed to this plate. Edit the template and create a new plate to change the layout."}</p>
+              <label><span>drug_name</span><input readOnly value={detailDraft.drugName} /></label>
               <div className="modal-field-row">
-                <label><span>concentration</span><input type="number" min="0" step="any" value={detailDraft.concentration} onChange={(event) => setDetailDraft({ ...detailDraft, concentration: event.target.value })} /></label>
-                <label><span>unit</span><input value={detailDraft.unit} onChange={(event) => setDetailDraft({ ...detailDraft, unit: event.target.value })} placeholder="µg/mL" /></label>
+                <label><span>concentration</span><input readOnly type="number" min="0" step="any" value={detailDraft.concentration} /></label>
+                <label><span>unit</span><input readOnly value={detailDraft.unit} placeholder="µg/mL" /></label>
               </div>
               <label><span>note</span><textarea rows={4} value={detailDraft.note} onChange={(event) => setDetailDraft({ ...detailDraft, note: event.target.value })} placeholder={locale === "ja" ? "要確認の理由や観察メモ" : "Observation or review reason"} /></label>
               <div className="modal-actions">

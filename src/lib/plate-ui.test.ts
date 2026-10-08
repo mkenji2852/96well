@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { applyGrowthToLowerConcentrations, applyStateToRow, createEmptyPlate, cycleWellState, wellKey } from "./plate-ui";
+import { applyGrowthToLowerConcentrations, applyStateToRow, createEmptyPlate, cycleWellState, wellKey, restoreLayoutDetails } from "./plate-ui";
+
+it("restores notes without replacing template drug coordinates or doses with stale draft details", () => {
+  const layout = { "0-10": { drugName: "Ampicillin", concentration: "8", unit: "mg/L", note: "" },
+    "1-11": { drugName: "", concentration: "", unit: "", note: "" } };
+  const draft = { "0-10": { drugName: "Old Drug", concentration: "64", unit: "other", note: "Observed" },
+    "1-11": { drugName: "Stale Drug", concentration: "16", unit: "mg/L", note: "" } };
+  const restored = restoreLayoutDetails(layout, draft);
+  expect(restored["0-10"]).toEqual({ ...layout["0-10"], note: "Observed" });
+  expect(restored["1-11"]).toEqual(layout["1-11"]);
+  expect(layout["0-10"].note).toBe("");
+});
 
 describe("cycleWellState", () => {
   it("cycles empty → growth → no_growth → review_needed → empty", () => {

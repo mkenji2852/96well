@@ -16,6 +16,13 @@ export interface WellDetails {
 
 export type WellDetailsMap = Record<string, WellDetails>;
 
+/** Drafts may restore notes, but cannot override the persisted drug layout. */
+export function restoreLayoutDetails(layout: WellDetailsMap, draft?: WellDetailsMap): WellDetailsMap {
+  return Object.fromEntries(Object.entries(layout).map(([key, detail]) => [key, {
+    ...detail, note: draft?.[key]?.note ?? detail.note,
+  }]));
+}
+
 export function wellKey(rowIndex: number, columnIndex: number): string {
   return `${rowIndex}-${columnIndex}`;
 }

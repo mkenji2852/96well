@@ -1,5 +1,40 @@
 ﻿import { expect, test } from "@playwright/test";
 
+test("flexible template coordinates remain unchanged in the input screen", async ({ page }) => {
+  const assignments = [{ rowIndex: 0, columnIndex: 10, concentration: 4 }, { rowIndex: 1, columnIndex: 11, concentration: 8 }, { rowIndex: 7, columnIndex: 2, concentration: 16 }];
+  const sample = { id: "sample-layout", sampleCode: "S-layout", organism: "E. coli" };
+  const plate = { id: "plate-layout", name: "Flexible", status: "DRAFT", wellRevision: 0, updatedAt: "2026-10-08T00:00:00Z", sample, wells: [], results: [],
+    drugs: [{ id: "drug-layout", rowIndex: 0, drugName: "Ampicillin", unit: "mg/L", concentrations: { mode: "wells", wells: assignments } }],
+  };
+  await page.addInitScript(wells => localStorage.setItem("mic-plate-templates-v1", JSON.stringify([
+    { id: "template-layout", name: "Flexible", drugs: [{ id: "drug-layout", drugName: "Ampicillin", unit: "mg/L", wells }], createdAt: "2026-10-08T00:00:00Z" },
+  ])), assignments);
+  await page.route("**/api/me", route => route.fulfill({ json: { user: { userId: "tech-layout", organizationId: "org-layout", role: "TECHNICIAN", sessionId: "session-layout" } } }));
+  await page.route("**/api/breakpoint-sets?**", route => route.fulfill({ json: { breakpointSets: [] } }));
+  await page.route("**/api/samples", async route => {
+    if (route.request().method() === "POST") {
+      expect(route.request().postDataJSON().drugs[0].wells).toEqual(assignments);
+      await route.fulfill({ status: 201, json: { sample, plate } });
+    } else await route.fulfill({ json: { samples: [{ ...sample, plates: [plate] }] } });
+  });
+  await page.route("**/api/plates/plate-layout", route => route.fulfill({ json: plate }));
+  await page.goto("/");
+  await page.getByLabel("Sample-ID", { exact: true }).fill("S-layout");
+  await page.getByRole("button", { name: "プレート入力へ", exact: true }).click();
+  const assertLayout = async () => {
+    for (const [name, dose] of [["A11", "4"], ["B12", "8"], ["H3", "16"]]) {
+      const well = page.getByRole("button", { name: `${name}: 未入力`, exact: true });
+      await expect(well).toContainText("Ampicillin");
+      await expect(well).toContainText(`${dose} mg/L`);
+    }
+    await expect(page.getByRole("button", { name: "A1: 未入力", exact: true })).not.toContainText("Ampicillin");
+  };
+  await assertLayout();
+  await page.getByRole("button", { name: "初期画面へ戻る" }).click();
+  await page.getByRole("button", { name: "選択したプレートを開く" }).click();
+  await assertLayout();
+});
+
 test("plate template deletion requires confirmation and persists without deleting samples", async ({ page }) => {
   let sampleDeleteRequests = 0;
   await page.route("**/api/me", route => route.fulfill({ status: 401, contentType: "application/json", body: "{}" }));
